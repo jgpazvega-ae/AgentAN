@@ -329,6 +329,7 @@ test('tarifas del cotizador y versión para GitHub Pages', async () => {
   const page = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
   assert.doesNotMatch(page, /(href|src)="\/[^/]/, 'solo rutas relativas');
   assert.match(page, /"static":true/);
+  assert.match(page, /id="cuanto-pagare"/, 'sección ¿Cuánto pagaré?');
   for (const f of ['css/site.css', 'js/cotizador.js', 'img/logo.png', 'login.html']) assert.ok(fs.existsSync(path.join(out, f)), f);
 });
 

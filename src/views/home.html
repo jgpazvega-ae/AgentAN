@@ -23,6 +23,7 @@
         <a href="#servicios">Servicios</a>
         <!--if:about--><a href="#nosotros">Nosotros</a><!--endif:about-->
         <a href="#cotizar">Cotizar</a>
+        <a href="#cuanto-pagare">¿Cuánto pagaré?</a>
         <a href="#contacto">Contacto</a>
       </nav>
       <a class="btn btn-login" href="{{loginUrl}}">Iniciar sesión</a>
@@ -140,6 +141,34 @@
             <div id="quote-msg" role="status"></div>
             <button class="btn btn-accent btn-lg" id="quote-send">Enviar solicitud</button>
           </form>
+        </div>
+      </div>
+    </section>
+    <section id="cuanto-pagare" class="section">
+      <div class="wrap pay-grid">
+        <div>
+          <h2>¿Cuánto pagaré?</h2>
+          <p class="muted-text">Si ya te enviamos una cotización, escribe el importe <b>sin impuestos</b> y te mostramos el total a pagar con IVA y, si eres empresa, las retenciones que marca la ley.</p>
+          <ul class="checks">
+            <li>Persona física: se suma el IVA.</li>
+            <li>Empresa (persona moral): se suma el IVA y se restan las retenciones, que tu empresa entera directamente al SAT.</li>
+            <li>La factura muestra el mismo desglose.</li>
+          </ul>
+        </div>
+        <div class="calc card" id="pay-calc">
+          <label for="pay-amount">Importe cotizado sin impuestos</label>
+          <div class="money-input"><span>$</span><input id="pay-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+          <label>Servicio</label>
+          <div class="seg" id="pay-svc">
+            <button type="button" data-v="flete" class="active">Flete</button>
+            <button type="button" data-v="ejecutivo">Viaje ejecutivo</button>
+          </div>
+          <label>Tipo de cliente</label>
+          <div class="seg" id="pay-client">
+            <button type="button" data-v="fisica" class="active">Persona física</button>
+            <button type="button" data-v="moral">Empresa (persona moral)</button>
+          </div>
+          <div class="estimate" id="pay-result" aria-live="polite"></div>
         </div>
       </div>
     </section>

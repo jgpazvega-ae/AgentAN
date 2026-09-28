@@ -135,3 +135,11 @@ h3 { font-size: 1.1rem; }
 .est-table tr.save td { color: #86efac; }
 #pay-tabs button { font-size: .9rem; }
 .vehicles button .rate small { display: block; font-size: .75rem; font-weight: 600; color: var(--muted); text-align: right; }
+
+/* ¿Cuánto pagaré? */
+.pay-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; }
+@media (max-width: 860px) { .pay-grid { grid-template-columns: 1fr; } }
+.money-input { display: flex; align-items: center; border: 1px solid #cfd6e2; border-radius: 10px; background: #fff; overflow: hidden; }
+.money-input span { padding: 0 4px 0 14px; font-weight: 700; color: var(--navy); font-size: 1.2rem; }
+.money-input input { border: 0 !important; font-size: 1.3rem !important; font-weight: 700; }
+.money-input:focus-within { outline: 2px solid var(--green); outline-offset: 1px; }
