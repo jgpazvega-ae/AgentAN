@@ -1,0 +1,22 @@
+{
+  "name": "fletes-app",
+  "version": "1.0.0",
+  "description": "Plataforma web (PWA) para asignar viajes a choferes, con avisos por correo y notificaciones push, Google Maps y control de rendimiento de combustible por fotos del odómetro.",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "express": "^4.22.3",
+    "multer": "^2.4.0",
+    "nodemailer": "^10.0.12",
+    "web-push": "^3.6.7"
+  }
+}
