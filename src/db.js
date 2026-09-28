@@ -139,6 +139,22 @@ CREATE TABLE IF NOT EXISTS payment_items (
 CREATE INDEX IF NOT EXISTS idx_payment_items_payment ON payment_items(payment_id);
 CREATE INDEX IF NOT EXISTS idx_payment_items_trip ON payment_items(trip_id);
 
+-- Solicitudes de cotización enviadas desde la página pública.
+CREATE TABLE IF NOT EXISTS quote_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  company TEXT,
+  phone TEXT,
+  email TEXT,
+  origin TEXT,
+  destination TEXT,
+  service_date TEXT,
+  cargo TEXT,
+  message TEXT,
+  status TEXT NOT NULL DEFAULT 'nueva' CHECK (status IN ('nueva', 'atendida')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL

@@ -23,7 +23,7 @@ async function api(path, options = {}) {
   }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && !path.startsWith('/login')) {
-    location.href = `/?volver=${encodeURIComponent(location.pathname + location.hash)}`;
+    location.href = `/login.html?volver=${encodeURIComponent(location.pathname + location.hash)}`;
     throw new Error(data.error || 'Sesión expirada');
   }
   if (!res.ok) throw new Error(data.error || 'Ocurrió un error.');
@@ -219,7 +219,7 @@ async function promptInstall() {
 
 async function logout() {
   await api('/logout', { method: 'POST' }).catch(() => {});
-  location.href = '/';
+  location.href = '/login.html';
 }
 
 // Abre el diálogo de "Mi cuenta" para cambiar la contraseña.

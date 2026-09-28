@@ -1,6 +1,13 @@
-# Fletes · Plataforma de viajes para choferes
+# AN Mobility Group · Página de la empresa y plataforma de viajes
 
-Página web que se instala en el celular como una app (PWA). Sirve para que el chofer:
+El sitio tiene dos partes:
+
+- **Página pública de la empresa** (`/`): presenta a AN Mobility Group a los clientes (servicios, nosotros, contacto, WhatsApp) e incluye un **formulario de cotización**. Arriba a la derecha está el botón **Iniciar sesión**.
+- **Plataforma interna** (`/login.html`): choferes y administración. Se instala en el celular como una app (PWA).
+
+Los textos y datos de contacto de la página pública se editan desde el panel, en la pestaña **Empresa** (nombre, frase principal, “Nosotros”, zona de servicio, teléfono, WhatsApp, correo, dirección y RFC). Las solicitudes de cotización llegan por correo y quedan en la pestaña **Cotizaciones**.
+
+La plataforma sirve para que el chofer:
 
 - **Inicie sesión y vea sus viajes asignados** (pendientes e historial).
 - **Reciba avisos al instante** cuando se le asigna, cambia o cancela un viaje: **notificación push** (como Uber) y **correo electrónico**.
@@ -61,7 +68,7 @@ npm install
 npm start
 ```
 
-Abre http://localhost:3000. La primera vez te pedirá crear la cuenta del administrador. Sin configurar nada más ya funciona todo: los correos se muestran en la consola y el mapa se reemplaza por un campo de dirección (se puede pegar un enlace de Google Maps).
+Abre http://localhost:3000 para ver la página de la empresa y http://localhost:3000/login.html para entrar. La primera vez te pedirá crear la cuenta del administrador. Sin configurar nada más ya funciona todo: los correos se muestran en la consola y el mapa se reemplaza por un campo de dirección (se puede pegar un enlace de Google Maps).
 
 Pruebas automáticas: `npm test`.
 
@@ -161,14 +168,18 @@ src/
   payments.js API de recibos de pago (semanales y bonos)
   receipts.js PDF de los recibos e importe con letra
   weeks.js    semanas ISO (CW##)
+  site.js     datos de la empresa (se editan en el panel)
+  site-api.js API de la página pública: datos de la empresa y cotizaciones
+  views/home.html  página pública de la empresa
   db.js       base de datos SQLite (tablas)
   auth.js     contraseñas y sesiones
   notify.js   correos y notificaciones push
   config.js   variables de entorno
 public/
-  index.html  inicio de sesión / configuración inicial
   chofer.html pantalla del chofer
-  admin.html  panel del administrador (js/admin.js, js/admin-payments.js)
+  login.html  inicio de sesión / configuración inicial
+  admin.html  panel del administrador (js/admin.js, js/admin-payments.js, js/admin-site.js)
+  img/        logotipo
   sw.js       service worker (instalación y notificaciones)
 test/         pruebas automáticas
 ```

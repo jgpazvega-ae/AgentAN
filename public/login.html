@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#1d4ed8">
-  <title>Iniciar sesión · Fletes</title>
+  <meta name="theme-color" content="#13294b">
+  <title>Iniciar sesión · AN Mobility Group</title>
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="icon" href="/icons/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="stylesheet" href="/css/app.css">
@@ -15,9 +15,9 @@
 <body>
   <main class="auth-wrap">
     <div class="card auth-card">
-      <img class="auth-logo" src="/icons/icon.svg" alt="">
+      <a href="/" class="auth-logo-link"><img class="auth-logo" src="/img/logo.png" alt="AN Mobility Group"></a>
       <h1 id="title" style="text-align:center">Iniciar sesión</h1>
-      <p id="subtitle" class="muted small" style="text-align:center"></p>
+      <p id="subtitle" class="muted small" style="text-align:center">Acceso para choferes y administración</p>
 
       <form id="login-form">
         <label for="email">Correo</label>
@@ -39,6 +39,7 @@
         <div id="setup-msg"></div>
         <button class="btn-primary btn-big" style="margin-top:16px">Crear cuenta</button>
       </form>
+      <p class="small" style="text-align:center;margin-top:16px"><a href="/">← Volver a la página de la empresa</a></p>
     </div>
   </main>
 
@@ -55,7 +56,6 @@
       registerServiceWorker();
       const cfg = await api('/config');
       document.title = `Iniciar sesión · ${cfg.companyName}`;
-      $('#subtitle').textContent = cfg.companyName;
       if (cfg.needsSetup) {
         $('#title').textContent = 'Configuración inicial';
         $('#login-form').classList.add('hidden');

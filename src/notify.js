@@ -3,6 +3,7 @@ const nodemailer = require('nodemailer');
 const webpush = require('web-push');
 const config = require('./config');
 const { all, run, getSetting, setSetting } = require('./db');
+const { getSite } = require('./site');
 
 // ---------- Correo ----------
 let transporter = null;
@@ -19,12 +20,12 @@ function emailEnabled() {
   return Boolean(transporter);
 }
 
-async function sendEmail({ to, subject, text, html }) {
+async function sendEmail({ to, subject, text, html, replyTo }) {
   if (!transporter) {
     console.log(`[correo desactivado] Para: ${to} | ${subject}\n${text}\n`);
     return { skipped: true };
   }
-  return transporter.sendMail({ from: config.smtp.from, to, subject, text, html });
+  return transporter.sendMail({ from: config.smtp.from, to, subject, text, html, replyTo });
 }
 
 // ---------- Push ----------
@@ -126,12 +127,12 @@ function tripEmail(trip, kind) {
     '',
     `Ver el viaje: ${link}`,
     '',
-    config.companyName,
+    getSite().name,
   ].join('\n');
 
   const html = `
   <div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#1f2937">
-    <h2 style="color:#1d4ed8;margin-bottom:4px">${escapeHtml(titles[kind])}</h2>
+    <h2 style="color:#13294b;margin-bottom:4px">${escapeHtml(titles[kind])}</h2>
     <p>Hola ${escapeHtml(trip.driver_name || '')}, ${escapeHtml(intro[kind].charAt(0).toLowerCase() + intro[kind].slice(1))}</p>
     <table style="border-collapse:collapse;width:100%">
       ${rows
@@ -144,13 +145,13 @@ function tripEmail(trip, kind) {
     ${
       kind !== 'cancelled'
         ? `<p style="margin-top:16px">
-      <a href="${escapeHtml(mapsLink(trip.pickup_address, trip.pickup_lat, trip.pickup_lng))}" style="display:inline-block;margin:4px 8px 4px 0;padding:10px 14px;background:#e0e7ff;color:#1e3a8a;border-radius:8px;text-decoration:none">📍 Ir a recolección</a>
-      <a href="${escapeHtml(mapsLink(trip.dest_address, trip.dest_lat, trip.dest_lng))}" style="display:inline-block;margin:4px 0;padding:10px 14px;background:#e0e7ff;color:#1e3a8a;border-radius:8px;text-decoration:none">🏁 Ir a destino</a>
+      <a href="${escapeHtml(mapsLink(trip.pickup_address, trip.pickup_lat, trip.pickup_lng))}" style="display:inline-block;margin:4px 8px 4px 0;padding:10px 14px;background:#e6f4ea;color:#1f5f35;border-radius:8px;text-decoration:none">📍 Ir a recolección</a>
+      <a href="${escapeHtml(mapsLink(trip.dest_address, trip.dest_lat, trip.dest_lng))}" style="display:inline-block;margin:4px 0;padding:10px 14px;background:#e6f4ea;color:#1f5f35;border-radius:8px;text-decoration:none">🏁 Ir a destino</a>
     </p>`
         : ''
     }
-    <p style="margin-top:16px"><a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 18px;background:#1d4ed8;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">Abrir mi viaje</a></p>
-    <p style="color:#9ca3af;font-size:12px">${escapeHtml(config.companyName)}</p>
+    <p style="margin-top:16px"><a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 18px;background:#13294b;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">Abrir mi viaje</a></p>
+    <p style="color:#9ca3af;font-size:12px">${escapeHtml(getSite().name)}</p>
   </div>`;
 
   return { subject: titles[kind], text, html, link };
@@ -184,14 +185,14 @@ async function notifyDriverAboutPayment(p) {
     sendEmail({
       to: p.driver_email,
       subject,
-      text: `Hola ${p.driver_name},\n\nSe registró un pago a tu nombre.\n\n${what}\nImporte: ${amount}\nFecha de pago: ${p.paid_at}\n${p.notes ? `Notas: ${p.notes}\n` : ''}\nPuedes ver y descargar tu recibo en: ${link}\n\n${config.companyName}`,
+      text: `Hola ${p.driver_name},\n\nSe registró un pago a tu nombre.\n\n${what}\nImporte: ${amount}\nFecha de pago: ${p.paid_at}\n${p.notes ? `Notas: ${p.notes}\n` : ''}\nPuedes ver y descargar tu recibo en: ${link}\n\n${getSite().name}`,
       html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#1f2937">
-        <h2 style="color:#1d4ed8">${escapeHtml(subject)}</h2>
+        <h2 style="color:#13294b">${escapeHtml(subject)}</h2>
         <p>Hola ${escapeHtml(p.driver_name)}, se registró un pago a tu nombre.</p>
         <p><b>${escapeHtml(what)}</b><br>Importe: <b>${escapeHtml(amount)}</b><br>Fecha de pago: ${escapeHtml(p.paid_at)}</p>
         ${p.notes ? `<p style="color:#6b7280">${escapeHtml(p.notes)}</p>` : ''}
-        <p><a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 18px;background:#1d4ed8;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">Ver mi recibo</a></p>
-        <p style="color:#9ca3af;font-size:12px">${escapeHtml(config.companyName)}</p></div>`,
+        <p><a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 18px;background:#13294b;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">Ver mi recibo</a></p>
+        <p style="color:#9ca3af;font-size:12px">${escapeHtml(getSite().name)}</p></div>`,
     }),
     sendPush(p.driver_id, { title: subject, body: what, url: '/chofer.html#pagos', tag: `pago-${p.id}` }),
   ]);

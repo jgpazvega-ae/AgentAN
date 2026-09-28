@@ -17,7 +17,7 @@ async function init() {
     location.href = '/chofer.html';
     return;
   }
-  $('#brand').textContent = `${cfg.companyName} · Administración`;
+  $('#brand').textContent = 'Administración';
   document.title = `Administración · ${cfg.companyName}`;
   $('#menu-name').textContent = me.name;
   $('#menu-email').textContent = me.email;
@@ -30,6 +30,7 @@ async function init() {
   renderBanners();
   await Promise.all([loadUsers(), loadVehicles()]);
   await loadTrips();
+  refreshQuotesCount();
   openFromHash();
   window.addEventListener('hashchange', openFromHash);
   setInterval(() => document.visibilityState === 'visible' && !$('#tab-trips').classList.contains('hidden') && loadTrips(), 60000);
@@ -38,6 +39,7 @@ async function init() {
 
 function openFromHash() {
   if (location.hash === '#pagos') return switchTab('payments');
+  if (location.hash === '#cotizaciones') return switchTab('quotes');
   const m = location.hash.match(/viaje-(\d+)/);
   if (m) openDetail(Number(m[1]));
 }
@@ -51,6 +53,8 @@ function switchTab(name) {
   if (name === 'vehicles') loadVehicles();
   if (name === 'payments') loadPayments();
   if (name === 'report') loadReport();
+  if (name === 'quotes') loadQuotes();
+  if (name === 'company') loadCompany();
 }
 $$('.tabs button').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
 

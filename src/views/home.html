@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#13294b">
+  <title>{{name}} · {{tagline}}</title>
+  <meta name="description" content="{{description}}">
+  <meta property="og:title" content="{{name}}">
+  <meta property="og:description" content="{{description}}">
+  <meta property="og:image" content="{{appUrl}}/img/logo.png">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="/icons/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap bar">
+      <a href="/" class="brand" aria-label="{{name}}"><img src="/img/logo.png" alt="{{name}}" width="640" height="204"></a>
+      <nav class="nav">
+        <a href="#servicios">Servicios</a>
+        <!--if:about--><a href="#nosotros">Nosotros</a><!--endif:about-->
+        <a href="#cotizar">Cotizar</a>
+        <a href="#contacto">Contacto</a>
+      </nav>
+      <a class="btn btn-login" href="/login.html">Iniciar sesión</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow">Fletes y transporte de carga</p>
+          <h1>{{tagline}}</h1>
+          <p class="lead">Recolectamos tu mercancía en la fecha y hora acordadas y la llevamos a su destino con seguimiento de cada etapa del viaje.<!--if:service_area--> Atendemos {{service_area}}.<!--endif:service_area--></p>
+          <div class="cta">
+            <a class="btn btn-accent btn-lg" href="#cotizar">Solicitar cotización</a>
+            <!--if:whatsapp--><a class="btn btn-ghost btn-lg" href="{{whatsappUrl}}" target="_blank" rel="noopener">WhatsApp</a><!--endif:whatsapp-->
+            <!--if:phone--><a class="btn btn-ghost btn-lg" href="tel:{{phoneHref}}">Llamar</a><!--endif:phone-->
+          </div>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <img src="/img/logo-mark.png" alt="" class="hero-mark" width="320" height="267">
+        </div>
+      </div>
+    </section>
+
+    <section id="servicios" class="section">
+      <div class="wrap">
+        <h2>¿Qué hacemos?</h2>
+        <div class="cards">
+          <article class="card">
+            <div class="ico">🚚</div>
+            <h3>Fletes de carga</h3>
+            <p>Transporte de mercancía de un punto a otro con unidades asignadas a cada viaje.</p>
+          </article>
+          <article class="card">
+            <div class="ico">📅</div>
+            <h3>Carga programada</h3>
+            <p>Recolección en la fecha y hora pactadas. Si lo necesitas, cargamos un día y entregamos al siguiente.</p>
+          </article>
+          <article class="card">
+            <div class="ico">📍</div>
+            <h3>Seguimiento del viaje</h3>
+            <p>Nuestros choferes registran cada etapa: recolección, carga, salida y entrega.</p>
+          </article>
+          <article class="card">
+            <div class="ico">🤝</div>
+            <h3>Atención directa</h3>
+            <p>Cotiza con nosotros por teléfono, WhatsApp o con el formulario de esta página.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!--if:about-->
+    <section id="nosotros" class="section alt">
+      <div class="wrap narrow">
+        <h2>Nosotros</h2>
+        <p class="about">{{about}}</p>
+      </div>
+    </section>
+    <!--endif:about-->
+
+    <section id="cotizar" class="section">
+      <div class="wrap quote-grid">
+        <div>
+          <h2>Solicita una cotización</h2>
+          <p>Cuéntanos qué necesitas mover y te contactamos a la brevedad.</p>
+          <ul class="checks">
+            <li>Origen y destino</li>
+            <li>Fecha deseada de recolección</li>
+            <li>Tipo y cantidad de carga</li>
+          </ul>
+        </div>
+        <form id="quote-form" class="form" novalidate>
+          <div class="two">
+            <label>Nombre*<input name="name" required maxlength="100" autocomplete="name"></label>
+            <label>Empresa<input name="company" maxlength="150" autocomplete="organization"></label>
+            <label>Teléfono<input name="phone" type="tel" maxlength="40" autocomplete="tel"></label>
+            <label>Correo<input name="email" type="email" maxlength="200" autocomplete="email"></label>
+            <label>Origen<input name="origin" maxlength="300" placeholder="Ciudad o dirección"></label>
+            <label>Destino<input name="destination" maxlength="300" placeholder="Ciudad o dirección"></label>
+            <label>Fecha deseada<input name="service_date" type="date"></label>
+            <label>Carga<input name="cargo" maxlength="500" placeholder="Ej. 10 tarimas, 3 toneladas"></label>
+          </div>
+          <label>Comentarios<textarea name="message" maxlength="2000" rows="3"></textarea></label>
+          <label class="hp" aria-hidden="true">No llenar<input name="website" tabindex="-1" autocomplete="off"></label>
+          <div id="quote-msg" role="status"></div>
+          <button class="btn btn-accent btn-lg">Enviar solicitud</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer id="contacto" class="site-footer">
+    <div class="wrap foot-grid">
+      <div>
+        <img src="/img/logo-light.png" alt="{{name}}" class="foot-logo" width="640" height="204">
+        <!--if:service_area--><p>Zona de servicio: {{service_area}}</p><!--endif:service_area-->
+      </div>
+      <div>
+        <h3>Contacto</h3>
+        <ul class="contact">
+          <!--if:phone--><li>📞 <a href="tel:{{phoneHref}}">{{phone}}</a></li><!--endif:phone-->
+          <!--if:whatsapp--><li>💬 <a href="{{whatsappUrl}}" target="_blank" rel="noopener">WhatsApp {{whatsapp}}</a></li><!--endif:whatsapp-->
+          <!--if:email--><li>✉️ <a href="mailto:{{email}}">{{email}}</a></li><!--endif:email-->
+          <!--if:address--><li>📍 {{address}}</li><!--endif:address-->
+          <li><a href="#cotizar">Formulario de cotización</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Personal</h3>
+        <p>Choferes y administración:</p>
+        <a class="btn btn-accent" href="/login.html">Iniciar sesión</a>
+      </div>
+    </div>
+    <div class="wrap copy">© {{year}} {{name}}</div>
+  </footer>
+
+  <script>
+    const form = document.getElementById('quote-form');
+    const msg = document.getElementById('quote-msg');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      const btn = form.querySelector('button');
+      btn.disabled = true;
+      msg.className = '';
+      try {
+        const res = await fetch('/api/quotes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(out.error || 'No se pudo enviar. Inténtalo de nuevo.');
+        form.reset();
+        msg.className = 'ok';
+        msg.textContent = '¡Gracias! Recibimos tu solicitud y te contactaremos pronto.';
+      } catch (err) {
+        msg.className = 'err';
+        msg.textContent = err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

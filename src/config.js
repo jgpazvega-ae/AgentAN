@@ -19,8 +19,8 @@ module.exports = {
   port: Number(env.PORT) || 3000,
   // URL pública de la página, se usa en los enlaces de los correos.
   appUrl: (env.APP_URL || `http://localhost:${Number(env.PORT) || 3000}`).replace(/\/$/, ''),
-  companyName: env.COMPANY_NAME || 'Fletes',
-  // Datos opcionales que aparecen en el encabezado de los recibos de pago.
+  companyName: env.COMPANY_NAME || 'AN Mobility Group',
+  // Valores iniciales de los datos de la empresa (luego se editan en el panel → Empresa).
   companyRfc: env.COMPANY_RFC || '',
   companyAddress: env.COMPANY_ADDRESS || '',
   companyPhone: env.COMPANY_PHONE || '',

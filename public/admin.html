@@ -3,16 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#1d4ed8">
+  <meta name="theme-color" content="#13294b">
   <title>Administración</title>
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="icon" href="/icons/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
   <header class="topbar">
+    <a href="/" class="brand-link" aria-label="Página de la empresa"><img class="brand-logo" src="/img/logo-light.png" alt="AN Mobility Group"></a>
     <div class="brand" id="brand">Administración</div>
     <button class="btn-sm" id="btn-menu">Menú</button>
   </header>
@@ -22,6 +23,8 @@
     <button data-tab="vehicles">Vehículos</button>
     <button data-tab="payments">Pagos</button>
     <button data-tab="report">Rendimiento</button>
+    <button data-tab="quotes">Cotizaciones <span id="quotes-count" class="count hidden"></span></button>
+    <button data-tab="company">Empresa</button>
   </nav>
 
   <main class="container">
@@ -108,6 +111,34 @@
         <div class="card"><h3>Por chofer</h3><div class="table-wrap" id="r-drivers"></div></div>
       </div>
       <div class="card"><h3>Viajes finalizados</h3><div class="table-wrap" id="r-trips"></div></div>
+    </section>
+    <!-- Cotizaciones -->
+    <section id="tab-quotes" class="hidden">
+      <p class="muted small">Solicitudes enviadas desde el formulario de la página de la empresa. También te llegan por correo.</p>
+      <div id="quotes-list"></div>
+    </section>
+
+    <!-- Empresa -->
+    <section id="tab-company" class="hidden">
+      <form id="company-form" class="card narrow" style="margin:0 auto">
+        <h2>Datos de la empresa</h2>
+        <p class="muted small">Se muestran en la <a href="/" target="_blank">página pública</a>, en los correos y en los recibos de pago.</p>
+        <label>Nombre de la empresa</label><input name="name" maxlength="100" required>
+        <label>Frase principal (portada)</label><input name="tagline" maxlength="200">
+        <label>Nosotros (opcional; si queda vacío no se muestra la sección)</label>
+        <textarea name="about" maxlength="2000" rows="5" placeholder="Quiénes somos, desde cuándo operamos, qué tipo de carga movemos…"></textarea>
+        <label>Zona de servicio</label><input name="service_area" maxlength="300" placeholder="Ej. Nuevo León y el noreste del país">
+        <div class="grid-2">
+          <div><label>Teléfono</label><input name="phone" type="tel" maxlength="40"></div>
+          <div><label>WhatsApp (10 dígitos)</label><input name="whatsapp" type="tel" maxlength="40"></div>
+          <div><label>Correo de contacto (público)</label><input name="email" type="email" maxlength="200"></div>
+          <div><label>Correo que recibe las cotizaciones</label><input name="quotes_email" type="email" maxlength="200" placeholder="Si se deja vacío, el de contacto"></div>
+          <div><label>RFC (para recibos)</label><input name="rfc" maxlength="20"></div>
+        </div>
+        <label>Dirección</label><input name="address" maxlength="300">
+        <div class="msg"></div>
+        <div class="dialog-actions"><a class="btn" href="/" target="_blank">Ver página</a><button class="btn-primary">Guardar</button></div>
+      </form>
     </section>
   </main>
 
@@ -299,5 +330,6 @@
   <script src="/js/maps.js"></script>
   <script src="/js/admin.js"></script>
   <script src="/js/admin-payments.js"></script>
+  <script src="/js/admin-site.js"></script>
 </body>
 </html>

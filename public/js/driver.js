@@ -17,8 +17,7 @@ const ACTIONS = {
 async function init() {
   registerServiceWorker();
   [cfg, me] = await Promise.all([api('/config'), api('/me')]);
-  if (me.role === 'admin') $('#brand').textContent = `${cfg.companyName} · vista chofer`;
-  else $('#brand').textContent = cfg.companyName;
+  $('#brand').textContent = me.role === 'admin' ? 'Vista chofer' : 'Mis viajes';
   $('#menu-name').textContent = me.name;
   $('#menu-email').textContent = me.email;
   document.title = `Mis viajes · ${cfg.companyName}`;

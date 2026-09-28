@@ -8,6 +8,7 @@ const config = require('./config');
 const { get, all, run, transaction } = require('./db');
 const auth = require('./auth');
 const notify = require('./notify');
+const site = require('./site');
 const { HttpError, bad, h, str, num, nowLocal } = require('./http');
 
 const router = express.Router();
@@ -93,7 +94,7 @@ router.get(
   h((req, res) => {
     const users = get('SELECT COUNT(*) AS n FROM users').n;
     res.json({
-      companyName: config.companyName,
+      companyName: site.getSite().name,
       googleMapsApiKey: config.googleMapsApiKey,
       vapidPublicKey: notify.vapidPublicKey(),
       emailEnabled: notify.emailEnabled(),
@@ -248,8 +249,8 @@ router.post(
       notify
         .sendEmail({
           to: email,
-          subject: `Tu acceso a ${config.companyName}`,
-          text: `Hola ${name},\n\nYa tienes acceso a la plataforma de viajes de ${config.companyName}.\n\nEntra en: ${config.appUrl}/${page}\nCorreo: ${email}\nContraseña: ${password}\n\nTe recomendamos cambiar tu contraseña al entrar y activar las notificaciones.\n`,
+          subject: `Tu acceso a ${site.getSite().name}`,
+          text: `Hola ${name},\n\nYa tienes acceso a la plataforma de viajes de ${site.getSite().name}.\n\nEntra en: ${config.appUrl}/${page}\nCorreo: ${email}\nContraseña: ${password}\n\nTe recomendamos cambiar tu contraseña al entrar y activar las notificaciones.\n`,
         })
         .catch((err) => console.error('No se pudo enviar el correo de bienvenida:', err.message));
     }
@@ -727,8 +728,9 @@ router.get(
   })
 );
 
-// ---------- Recibos de pago ----------
+// ---------- Recibos de pago y página pública ----------
 router.use(require('./payments'));
+router.use(require('./site-api'));
 
 // ---------- Errores ----------
 router.use((err, _req, res, _next) => {

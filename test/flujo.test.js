@@ -249,3 +249,40 @@ test('recibos de pago semanal y bono', async () => {
   r = await driver('POST', `/payments/${weeklyId}/ack`);
   assert.equal(r.status, 400);
 });
+
+test('página pública, datos de la empresa y cotizaciones', async () => {
+  const admin = client();
+  const visitor = client();
+  await admin('POST', '/login', { email: 'dueno@example.com', password: 'secreto123' });
+
+  const home = await fetch(base.replace('/api', '/'));
+  assert.equal(home.status, 200);
+  const html = await home.text();
+  assert.match(html, /AN Mobility Group/);
+  assert.match(html, /href="\/login\.html"/);
+  assert.doesNotMatch(html, /\{\{|<!--if:/, 'no quedan marcadores sin reemplazar');
+  assert.doesNotMatch(html, /id="nosotros"/, 'sin texto de "Nosotros" no se muestra la sección');
+
+  let r = await visitor('PUT', '/site', { name: 'X' });
+  assert.equal(r.status, 401);
+  r = await admin('PUT', '/site', { about: 'Somos una empresa <familiar>.', whatsapp: '81 1234 5678', quotes_email: 'ventas@example.com' });
+  assert.equal(r.status, 200);
+  r = await visitor('GET', '/site');
+  assert.equal(r.data.quotes_email, undefined, 'el correo interno no es público');
+  const html2 = await (await fetch(base.replace('/api', '/'))).text();
+  assert.match(html2, /Somos una empresa &lt;familiar&gt;\./, 'el texto se escapa');
+  assert.match(html2, /https:\/\/wa\.me\/528112345678/);
+
+  r = await visitor('POST', '/quotes', { name: 'Cliente', origin: 'Monterrey' });
+  assert.equal(r.status, 400, 'pide teléfono o correo');
+  r = await visitor('POST', '/quotes', { name: 'Robot', phone: '1', website: 'spam' });
+  assert.equal(r.status, 200);
+  r = await visitor('POST', '/quotes', { name: 'Cliente Uno', phone: '8111111111', origin: 'Monterrey', destination: 'Saltillo', cargo: '5 tarimas' });
+  assert.equal(r.status, 201);
+  r = await visitor('GET', '/quotes');
+  assert.equal(r.status, 401);
+  r = await admin('GET', '/quotes');
+  assert.equal(r.data.length, 1, 'la solicitud del robot no se guarda');
+  r = await admin('PUT', `/quotes/${r.data[0].id}`, { status: 'atendida' });
+  assert.equal(r.status, 200);
+});

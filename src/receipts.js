@@ -1,7 +1,11 @@
 // Recibos de pago en PDF (pago semanal por destajo y bonos).
+const path = require('node:path');
 const PDFDocument = require('pdfkit');
 const config = require('./config');
 const { weekLabel } = require('./weeks');
+const { getSite } = require('./site');
+
+const LOGO = path.join(__dirname, '..', 'public', 'img', 'logo.png');
 
 // ---------- Importe con letra: 2500.5 → "DOS MIL QUINIENTOS PESOS 50/100 M.N." ----------
 const UNITS = ['', 'UN', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE', 'DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISÉIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE', 'VEINTE', 'VEINTIÚN', 'VEINTIDÓS', 'VEINTITRÉS', 'VEINTICUATRO', 'VEINTICINCO', 'VEINTISÉIS', 'VEINTISIETE', 'VEINTIOCHO', 'VEINTINUEVE'];
@@ -77,22 +81,33 @@ function pdfText(value) {
 }
 
 function renderPdf(rawPayment, stream) {
+  const site = getSite();
+  const company = pdfText(site.name);
   const payment = { ...rawPayment };
   for (const k of ['driver_name', 'description', 'notes', 'method', 'reference', 'cancel_reason']) payment[k] = payment[k] && pdfText(payment[k]);
   payment.items = rawPayment.items.map((i) => ({ ...i, description: pdfText(i.description) }));
-  const doc = new PDFDocument({ size: 'LETTER', margin: 50, info: { Title: `Recibo ${folio(payment)}`, Author: config.companyName } });
+  const doc = new PDFDocument({ size: 'LETTER', margin: 50, info: { Title: `Recibo ${folio(payment)}`, Author: company } });
   doc.pipe(stream);
 
-  const blue = '#1d4ed8';
+  const blue = '#13294b';
+  const green = '#3f9a5c';
   const gray = '#6b7280';
   const width = doc.page.width - 100;
   const left = 50;
 
   // Encabezado
-  doc.fillColor(blue).font('Helvetica-Bold').fontSize(18).text(config.companyName, left, 50, { width: width * 0.6 });
+  let headerY = 50;
+  try {
+    doc.image(LOGO, left, 44, { height: 46 });
+    headerY = 96;
+  } catch {
+    doc.fillColor(blue).font('Helvetica-Bold').fontSize(18).text(company, left, 50, { width: width * 0.6 });
+    headerY = doc.y;
+  }
+  doc.y = headerY;
   doc.fillColor(gray).font('Helvetica').fontSize(9);
-  for (const line of [config.companyRfc && `RFC: ${config.companyRfc}`, config.companyAddress, config.companyPhone && `Tel. ${config.companyPhone}`].filter(Boolean)) {
-    doc.text(line, { width: width * 0.6 });
+  for (const line of [site.rfc && `RFC: ${site.rfc}`, site.address, site.phone && `Tel. ${site.phone}`].filter(Boolean)) {
+    doc.text(pdfText(line), left, doc.y, { width: width * 0.6 });
   }
   doc.fillColor('#111827').font('Helvetica-Bold').fontSize(14).text('RECIBO DE PAGO', left, 50, { width, align: 'right' });
   doc.font('Helvetica').fontSize(10).fillColor(gray).text(`Folio ${folio(payment)}`, { width, align: 'right' });
@@ -101,17 +116,18 @@ function renderPdf(rawPayment, stream) {
     doc.fillColor('#b91c1c').font('Helvetica-Bold').text('CANCELADO', { width, align: 'right' });
   }
 
-  doc.moveTo(left, 125).lineTo(left + width, 125).strokeColor('#e5e7eb').stroke();
+  const lineY = Math.max(doc.y + 8, 125);
+  doc.moveTo(left, lineY).lineTo(left + width, lineY).strokeColor('#e5e7eb').stroke();
 
   // Datos principales
-  let y = 140;
+  let y = lineY + 15;
   const field = (label, value) => {
     if (!value) return;
     doc.font('Helvetica').fontSize(9).fillColor(gray).text(label.toUpperCase(), left, y, { width: 130 });
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827').text(value, left + 135, y, { width: width - 135 });
     y = doc.y + 8;
   };
-  field('Recibí de', config.companyName);
+  field('Recibí de', company);
   field('Nombre de quien recibe', payment.driver_name);
   field('Tipo de pago', payment.kind === 'bono' ? 'Bono' : 'Pago semanal por servicios de flete (destajo)');
   field('Semana', periodText(payment));
@@ -194,7 +210,7 @@ function renderPdf(rawPayment, stream) {
     doc.fillColor('#047857').text(`Recibido y confirmado por el chofer en la plataforma el ${when}`, left, doc.y + 8, { width, align: 'center' });
   }
 
-  doc.fontSize(8).fillColor(gray).text(`Comprobante interno de pago · ${config.companyName} · ${folio(payment)}`, left, doc.page.height - 60, { width, align: 'center' });
+  doc.fontSize(8).fillColor(gray).text(`Comprobante interno de pago · ${company} · ${folio(payment)}`, left, doc.page.height - 60, { width, align: 'center' });
   doc.end();
 }
 
