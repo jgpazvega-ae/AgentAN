@@ -9,6 +9,8 @@
 
 const DEFAULT_PRICING = {
   origin: 'Centro de Querétaro',
+  // Punto de salida de las unidades (para calcular rutas con Google).
+  base_location: { lat: 20.5926, lng: -100.3924 },
   included_km: 40,
   round_to: 50,
   // Viáticos del chofer (hotel y alimentos) cuando el viaje obliga a pernoctar:
@@ -114,6 +116,14 @@ function estimate(pricing, { vehicle, km }) {
   return { total, list: listPrice(pricing, total), base: v.base, extra_km: extraKm, per_km: v.per_km, nights, viaticos };
 }
 
+// Ruta con origen y destino elegidos por el cliente: la unidad sale de la base,
+// va al origen, luego al destino y regresa. Se cobra la mitad del recorrido
+// total como "km equivalentes de ida", igual que un viaje que sale de la base.
+// (Si el origen es la base: (0 + d + d) / 2 = d.)
+function routeKm({ baseToOrigin, originToDest, destToBase }) {
+  return Math.round((baseToOrigin + originToDest + destToBase) / 2);
+}
+
 function overnightNights(pricing, km) {
   return pricing.overnight_km > 0 ? Math.floor(km / pricing.overnight_km) : 0;
 }
@@ -160,4 +170,4 @@ function mergePricing(saved, { keepDisabled = false } = {}) {
   return p;
 }
 
-module.exports = { DEFAULT_PRICING, estimate, listPrice, overnightNights, mergePricing, taxBreakdown };
+module.exports = { DEFAULT_PRICING, estimate, listPrice, overnightNights, routeKm, mergePricing, taxBreakdown };

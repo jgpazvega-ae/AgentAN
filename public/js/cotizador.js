@@ -87,7 +87,116 @@
   });
   $('dest-km').addEventListener('input', render);
 
+  // ---------- Ruta con origen y destino elegidos por el cliente (Google) ----------
+  let routeMode = 'city';
+  let customKm = null;
+  const places = { origin: null, dest: null }; // { address, lat, lng }
+
+  if (data.mapsKey) $('route-mode-wrap').classList.remove('hidden');
+  $('route-mode').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mode]');
+    if (!b) return;
+    routeMode = b.dataset.mode;
+    [...$('route-mode').children].forEach((x) => x.classList.toggle('active', x === b));
+    $('custom-route').classList.toggle('hidden', routeMode !== 'custom');
+    $('city-route').classList.toggle('hidden', routeMode === 'custom');
+    if (routeMode === 'custom') setupPlaceInputs();
+    render();
+  });
+
+  // Campos de dirección: con Google Places si carga; si no, texto libre
+  // (la API de rutas también entiende direcciones escritas).
+  let placesReady = null;
+  function setupPlaceInputs() {
+    if (placesReady) return placesReady;
+    for (const [key, box, ph] of [['origin', 'orig-ac', 'Ciudad, colonia o dirección de recolección'], ['dest', 'dest-ac', 'Ciudad, colonia o dirección de entrega']]) {
+      const input = document.createElement('input');
+      input.placeholder = ph;
+      input.addEventListener('change', () => {
+        places[key] = input.value.trim() ? { address: input.value.trim() } : null;
+        computeRoute();
+      });
+      $(box).append(input);
+    }
+    placesReady = loadMaps()
+      .then(async (google) => {
+        if (!google) return;
+        const lib = await google.maps.importLibrary('places');
+        if (!lib.PlaceAutocompleteElement) return;
+        for (const [key, box] of [['origin', 'orig-ac'], ['dest', 'dest-ac']]) {
+          const ac = new lib.PlaceAutocompleteElement({ includedRegionCodes: ['mx'] });
+          const onPlace = async (place) => {
+            await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location'] });
+            const name = place.displayName && !String(place.formattedAddress || '').startsWith(place.displayName) ? `${place.displayName}, ` : '';
+            places[key] = { address: `${name}${place.formattedAddress || ''}`, lat: place.location.lat(), lng: place.location.lng() };
+            computeRoute();
+          };
+          ac.addEventListener('gmp-select', (e) => onPlace(e.placePrediction.toPlace()));
+          ac.addEventListener('gmp-placeselect', (e) => onPlace(e.place));
+          $(box).replaceChildren(ac);
+        }
+      })
+      .catch(() => {});
+    return placesReady;
+  }
+
+  let mapsPromise = null;
+  function loadMaps() {
+    if (mapsPromise) return mapsPromise;
+    mapsPromise = new Promise((resolve) => {
+      window.__cotizadorMaps = () => resolve(window.google);
+      const sc = document.createElement('script');
+      sc.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(data.mapsKey)}&v=weekly&libraries=places&language=es&region=MX&loading=async&callback=__cotizadorMaps`;
+      sc.async = true;
+      sc.onerror = () => resolve(null);
+      document.head.append(sc);
+    });
+    return mapsPromise;
+  }
+
+  // Distancia por carretera con la API de rutas de Google (Routes API).
+  const waypoint = (p) => (p.lat != null ? { location: { latLng: { latitude: p.lat, longitude: p.lng } } } : { address: p.address });
+  async function drivingKm(from, to) {
+    const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': data.mapsKey, 'X-Goog-FieldMask': 'routes.distanceMeters' },
+      body: JSON.stringify({ origin: waypoint(from), destination: waypoint(to), travelMode: 'DRIVE', languageCode: 'es-MX', regionCode: 'MX' }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || !out.routes?.length) throw new Error(out.error?.message || 'Sin ruta');
+    return out.routes[0].distanceMeters / 1000;
+  }
+
+  let routeRequest = 0;
+  async function computeRoute() {
+    const info = $('route-info');
+    customKm = null;
+    if (!places.origin || !places.dest) {
+      info.textContent = '';
+      render();
+      return;
+    }
+    const request = ++routeRequest;
+    info.textContent = 'Calculando ruta…';
+    render();
+    const base = { lat: P.base_location.lat, lng: P.base_location.lng };
+    try {
+      const [a, b, c] = await Promise.all([drivingKm(base, places.origin), drivingKm(places.origin, places.dest), drivingKm(places.dest, base)]);
+      if (request !== routeRequest) return;
+      customKm = Math.round((a + b + c) / 2);
+      info.innerHTML = `Querétaro → origen: <b>${Math.round(a)} km</b> · origen → destino: <b>${Math.round(b)} km</b> · regreso a Querétaro: <b>${Math.round(c)} km</b><br>Se cobran <b>${customKm} km</b> (la mitad del recorrido completo de la unidad).`;
+      const form = document.getElementById('quote-form');
+      form.origin.value = places.origin.address;
+      form.destination.value = places.dest.address;
+    } catch {
+      if (request !== routeRequest) return;
+      info.textContent = 'No pudimos calcular la ruta. Revisa las direcciones o elige un destino de la lista.';
+    }
+    render();
+  }
+
   function distance() {
+    if (routeMode === 'custom') return customKm;
     const v = $('dest-city').value;
     if (v === 'otro') {
       const km = Number($('dest-km').value);
@@ -139,7 +248,7 @@
     if (vehicle.special) {
       box.innerHTML = `<div class="est-special">Las unidades grandes se cotizan según el volumen, peso y maniobras de la carga. Envíanos tu solicitud y te respondemos con el precio.</div>`;
     } else if (!est) {
-      box.innerHTML = `<div class="est-empty">Elige el destino para ver el precio estimado.<br><small>Base ${money(vehicle.base)} hasta ${P.included_km} km desde ${esc(P.origin)}.</small></div>`;
+      box.innerHTML = `<div class="est-empty">${routeMode === 'custom' ? 'Escribe de dónde sale y a dónde va para ver el precio estimado.' : 'Elige el destino para ver el precio estimado.'}<br><small>Base ${money(vehicle.base)} hasta ${P.included_km} km desde ${esc(P.origin)}.</small></div>`;
     } else {
       box.innerHTML = `
         <div class="est-label">Precio estimado · ${esc(vehicle.label)}</div>
