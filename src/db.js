@@ -105,6 +105,40 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Recibos de pago a choferes: pago semanal por destajo o bono.
+CREATE TABLE IF NOT EXISTS payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  driver_id INTEGER NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL CHECK (kind IN ('semanal', 'bono')),
+  year INTEGER,
+  week INTEGER,
+  period_start TEXT,
+  period_end TEXT,
+  amount REAL NOT NULL CHECK (amount >= 0),
+  paid_at TEXT NOT NULL,
+  method TEXT,
+  reference TEXT,
+  description TEXT,
+  notes TEXT,
+  status TEXT NOT NULL DEFAULT 'emitido' CHECK (status IN ('emitido', 'cancelado')),
+  acknowledged_at TEXT,
+  cancelled_at TEXT,
+  cancel_reason TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_payments_driver ON payments(driver_id, year, week);
+
+CREATE TABLE IF NOT EXISTS payment_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  payment_id INTEGER NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+  trip_id INTEGER REFERENCES trips(id) ON DELETE SET NULL,
+  description TEXT NOT NULL,
+  amount REAL
+);
+CREATE INDEX IF NOT EXISTS idx_payment_items_payment ON payment_items(payment_id);
+CREATE INDEX IF NOT EXISTS idx_payment_items_trip ON payment_items(trip_id);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL

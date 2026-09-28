@@ -173,6 +173,31 @@ async function notifyDriverAboutTrip(trip, kind) {
   for (const r of results) if (r.status === 'rejected') console.error('Aviso al chofer falló:', r.reason?.message || r.reason);
 }
 
+// Avisa al chofer que tiene un nuevo recibo de pago disponible.
+async function notifyDriverAboutPayment(p) {
+  const week = p.week ? ` CW${String(p.week).padStart(2, '0')} ${p.year}` : '';
+  const amount = `$${Number(p.amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const what = p.kind === 'bono' ? `Bono: ${p.description}` : `Pago semanal${week}`;
+  const link = `${config.appUrl}/chofer.html#pagos`;
+  const subject = `Recibo de pago ${p.folio} · ${amount}`;
+  const results = await Promise.allSettled([
+    sendEmail({
+      to: p.driver_email,
+      subject,
+      text: `Hola ${p.driver_name},\n\nSe registró un pago a tu nombre.\n\n${what}\nImporte: ${amount}\nFecha de pago: ${p.paid_at}\n${p.notes ? `Notas: ${p.notes}\n` : ''}\nPuedes ver y descargar tu recibo en: ${link}\n\n${config.companyName}`,
+      html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#1f2937">
+        <h2 style="color:#1d4ed8">${escapeHtml(subject)}</h2>
+        <p>Hola ${escapeHtml(p.driver_name)}, se registró un pago a tu nombre.</p>
+        <p><b>${escapeHtml(what)}</b><br>Importe: <b>${escapeHtml(amount)}</b><br>Fecha de pago: ${escapeHtml(p.paid_at)}</p>
+        ${p.notes ? `<p style="color:#6b7280">${escapeHtml(p.notes)}</p>` : ''}
+        <p><a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 18px;background:#1d4ed8;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">Ver mi recibo</a></p>
+        <p style="color:#9ca3af;font-size:12px">${escapeHtml(config.companyName)}</p></div>`,
+    }),
+    sendPush(p.driver_id, { title: subject, body: what, url: '/chofer.html#pagos', tag: `pago-${p.id}` }),
+  ]);
+  for (const r of results) if (r.status === 'rejected') console.error('Aviso de pago falló:', r.reason?.message || r.reason);
+}
+
 // Avisa a los administradores (solo push) cuando el chofer avanza el viaje.
 async function notifyAdmins(title, body, url) {
   const admins = all("SELECT id FROM users WHERE role = 'admin' AND active = 1");
@@ -185,6 +210,7 @@ module.exports = {
   sendPush,
   vapidPublicKey,
   notifyDriverAboutTrip,
+  notifyDriverAboutPayment,
   notifyAdmins,
   formatLocal,
   mapsLink,

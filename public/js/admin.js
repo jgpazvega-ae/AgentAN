@@ -37,6 +37,7 @@ async function init() {
 }
 
 function openFromHash() {
+  if (location.hash === '#pagos') return switchTab('payments');
   const m = location.hash.match(/viaje-(\d+)/);
   if (m) openDetail(Number(m[1]));
 }
@@ -48,6 +49,7 @@ function switchTab(name) {
   if (name === 'trips') loadTrips();
   if (name === 'drivers') loadUsers();
   if (name === 'vehicles') loadVehicles();
+  if (name === 'payments') loadPayments();
   if (name === 'report') loadReport();
 }
 $$('.tabs button').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));

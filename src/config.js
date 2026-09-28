@@ -20,6 +20,10 @@ module.exports = {
   // URL pública de la página, se usa en los enlaces de los correos.
   appUrl: (env.APP_URL || `http://localhost:${Number(env.PORT) || 3000}`).replace(/\/$/, ''),
   companyName: env.COMPANY_NAME || 'Fletes',
+  // Datos opcionales que aparecen en el encabezado de los recibos de pago.
+  companyRfc: env.COMPANY_RFC || '',
+  companyAddress: env.COMPANY_ADDRESS || '',
+  companyPhone: env.COMPANY_PHONE || '',
   timezone: env.TZ_DISPLAY || 'America/Mexico_City',
   dataDir,
   uploadsDir: path.join(dataDir, 'uploads'),

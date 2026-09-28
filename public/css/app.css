@@ -81,6 +81,14 @@ h3 { font-size: 1rem; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 12px; }
 .toolbar label { margin: 0; }
 
+.subtabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; }
+.subtabs button { border: 0; background: none; padding: 8px 14px; color: var(--muted); }
+.subtabs button.active { background: var(--primary-soft); color: var(--primary-text); }
+.week-prefix { font-weight: 700; color: var(--primary-text); background: var(--primary-soft); padding: 10px; border-radius: 10px; }
+.line-row { display: grid; grid-template-columns: auto 1fr 120px auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.line-row input[type=checkbox] { width: auto; }
+.line-row .paid { color: var(--warn); font-size: 0.8rem; }
+
 /* ---------- Formularios ---------- */
 label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
 input, select, textarea {

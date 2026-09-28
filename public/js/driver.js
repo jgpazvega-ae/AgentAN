@@ -34,6 +34,7 @@ async function init() {
 }
 
 async function load(silent = false) {
+  if (tab === 'payments') return loadPayments(silent);
   try {
     trips = await api(`/trips?scope=${tab}`);
     render();
@@ -126,6 +127,7 @@ function point(t, kind) {
 }
 
 function focusFromHash() {
+  if (location.hash === '#pagos' && tab !== 'payments') return switchTab('payments');
   const m = location.hash.match(/viaje-(\d+)/);
   if (!m) return;
   const el = document.getElementById(`viaje-${m[1]}`);
@@ -144,6 +146,63 @@ function switchTab(name) {
   $$('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   load();
 }
+
+// ---------- Recibos de pago ----------
+let payments = [];
+async function loadPayments(silent) {
+  try {
+    payments = await api('/payments');
+  } catch (err) {
+    if (!silent) showError($('#list'), err);
+    return;
+  }
+  const money = (n) => `$${fmtNum(n, 2)}`;
+  $('#list').innerHTML = payments.length
+    ? payments
+        .map((p) => {
+          const week = p.week ? `CW${String(p.week).padStart(2, '0')} ${p.year}` : '';
+          const title = p.kind === 'bono' ? `Bono${week ? ` · ${week}` : ''}` : `Pago semanal · ${week}`;
+          const trips = p.items.filter((i) => i.trip_id).length;
+          return `
+      <article class="card">
+        <div class="card-head">
+          <div><h2>${esc(title)}</h2><span class="muted small">Folio ${esc(p.folio)} · pagado el ${esc(fmtDate(p.paid_at, true))}</span></div>
+          <b style="font-size:1.3rem">${money(p.amount)}</b>
+        </div>
+        ${p.kind === 'bono' ? `<p>${esc(p.description)}</p>` : p.period_start ? `<p class="muted small">Del ${esc(fmtDate(p.period_start, true))} al ${esc(fmtDate(p.period_end, true))}${trips ? ` · ${trips} viaje(s)` : ''}</p>` : ''}
+        ${p.notes ? `<p class="small">${esc(p.notes)}</p>` : ''}
+        ${p.status === 'cancelado' ? '<div class="alert alert-error">Este recibo fue cancelado.</div>' : ''}
+        <div class="row" style="margin-top:8px">
+          <a class="btn btn-soft grow" href="/api/payments/${p.id}/pdf?download=1">⬇ Descargar recibo</a>
+          <a class="btn grow" href="/api/payments/${p.id}/pdf" target="_blank" rel="noopener">Ver</a>
+        </div>
+        ${
+          p.status === 'cancelado'
+            ? ''
+            : p.acknowledged_at
+              ? `<p class="small" style="color:var(--ok);margin-bottom:0">✓ Confirmaste que lo recibiste el ${esc(fmtUtc(p.acknowledged_at))}</p>`
+              : `<button class="btn-ok btn-big" style="margin-top:8px" data-ack="${p.id}">✓ Confirmo que recibí este pago</button>`
+        }
+      </article>`;
+        })
+        .join('')
+    : '<div class="empty">Aquí aparecerán tus recibos de pago.</div>';
+}
+
+$('#list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-ack]');
+  if (!btn) return;
+  if (!confirm('¿Confirmas que recibiste este pago?')) return;
+  btn.disabled = true;
+  try {
+    await api(`/payments/${btn.dataset.ack}/ack`, { method: 'POST' });
+    toast('¡Gracias! Pago confirmado');
+    loadPayments(true);
+  } catch (err) {
+    toast(err.message);
+    btn.disabled = false;
+  }
+});
 
 // ---------- Acciones ----------
 $('#list').addEventListener('click', async (e) => {

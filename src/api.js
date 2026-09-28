@@ -8,38 +8,10 @@ const config = require('./config');
 const { get, all, run, transaction } = require('./db');
 const auth = require('./auth');
 const notify = require('./notify');
+const { HttpError, bad, h, str, num, nowLocal } = require('./http');
 
 const router = express.Router();
 
-// ---------- Utilidades ----------
-class HttpError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
-const bad = (message) => new HttpError(400, message);
-
-// Envuelve rutas para que los errores lleguen al manejador central.
-const h = (fn) => (req, res, next) => {
-  try {
-    const result = fn(req, res, next);
-    if (result && typeof result.catch === 'function') result.catch(next);
-  } catch (err) {
-    next(err);
-  }
-};
-
-function str(value, max = 500) {
-  if (value === undefined || value === null) return null;
-  const s = String(value).trim();
-  return s ? s.slice(0, max) : null;
-}
-function num(value) {
-  if (value === undefined || value === null || value === '') return null;
-  const n = Number(String(value).replace(/,/g, ''));
-  return Number.isFinite(n) ? n : null;
-}
 // Fecha y hora local en formato "AAAA-MM-DDTHH:MM" (lo que produce <input type="datetime-local">).
 function localDateTime(value, field, required) {
   const s = str(value, 32);
@@ -49,23 +21,6 @@ function localDateTime(value, field, required) {
   }
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) throw bad(`La ${field} no es válida.`);
   return s.slice(0, 16);
-}
-// Fecha y hora actual en la zona horaria de la empresa, mismo formato que arriba.
-function nowLocal() {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-CA', {
-      timeZone: config.timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    })
-      .formatToParts(new Date())
-      .map((p) => [p.type, p.value])
-  );
-  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 // ---------- Fotos ----------
@@ -771,6 +726,9 @@ router.get(
     });
   })
 );
+
+// ---------- Recibos de pago ----------
+router.use(require('./payments'));
 
 // ---------- Errores ----------
 router.use((err, _req, res, _next) => {

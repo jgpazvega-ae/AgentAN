@@ -26,7 +26,7 @@ after(() => {
 
 function client() {
   let cookie = '';
-  return async (method, url, body) => {
+  const call = async (method, url, body) => {
     const headers = { cookie };
     let payload = body;
     if (body && !(body instanceof FormData)) {
@@ -38,7 +38,10 @@ function client() {
     if (setCookie) cookie = setCookie.split(';')[0];
     return { status: res.status, data: await res.json().catch(() => null) };
   };
+  call.cookie = () => cookie;
+  return call;
 }
+const cookieOf = async (c) => c.cookie();
 
 // JPEG mínimo (1x1) para simular la foto del odómetro.
 const JPEG = Buffer.from(
@@ -177,4 +180,72 @@ test('reasignar y cancelar', async () => {
   const p = client();
   r = await p('POST', '/login', { email: 'pedro@example.com', password: 'chofer123' });
   assert.equal(r.status, 401);
+});
+
+test('recibos de pago semanal y bono', async () => {
+  const admin = client();
+  const driver = client();
+  await admin('POST', '/login', { email: 'dueno@example.com', password: 'secreto123' });
+  await driver('POST', '/login', { email: 'juan@example.com', password: 'chofer123' });
+  const juan = (await admin('GET', '/users')).data.find((u) => u.email === 'juan@example.com');
+
+  // El viaje de la primera prueba terminó hoy: se busca en la semana actual.
+  const info = (await admin('GET', '/payments/week-info')).data;
+  let r = await admin('GET', `/payments/week-trips?driver_id=${juan.id}&year=${info.current.year}&week=${info.current.week}`);
+  assert.equal(r.data.trips.length, 1);
+  const trip = r.data.trips[0];
+
+  r = await admin('POST', '/payments', {
+    kind: 'semanal',
+    driver_id: juan.id,
+    year: info.current.year,
+    week: info.current.week,
+    paid_at: '2026-10-05',
+    method: 'Transferencia',
+    notes: 'Pago por destajo de 1 viaje',
+    items: [{ trip_id: trip.id, description: `Viaje #${trip.id}`, amount: 1800 }],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.amount, 1800, 'el total se calcula con los renglones');
+  assert.match(r.data.folio, /^P-\d{5}$/);
+  const weeklyId = r.data.id;
+
+  r = await admin('GET', `/payments/week-trips?driver_id=${juan.id}&year=${info.current.year}&week=${info.current.week}`);
+  assert.equal(r.data.trips[0].paid_in, weeklyId, 'el viaje queda marcado como pagado');
+  assert.equal(r.data.existing.length, 1);
+
+  // Semana sin viajes: se permite con importe manual.
+  r = await admin('POST', '/payments', { kind: 'semanal', driver_id: juan.id, year: 2026, week: 1, paid_at: '2026-01-05', amount: 500, notes: 'Pago a cuenta' });
+  assert.equal(r.status, 201);
+  r = await admin('POST', '/payments', { kind: 'semanal', driver_id: juan.id, year: 2026, week: 54, paid_at: '2026-01-05', amount: 1 });
+  assert.equal(r.status, 400, 'semana inválida');
+  r = await admin('POST', '/payments', { kind: 'bono', driver_id: juan.id, paid_at: '2026-10-05', amount: 300 });
+  assert.equal(r.status, 400, 'el bono requiere descripción');
+  r = await admin('POST', '/payments', { kind: 'bono', driver_id: juan.id, paid_at: '2026-10-05', amount: 300, description: 'Puntualidad' });
+  assert.equal(r.status, 201);
+  assert.match(r.data.folio, /^B-/);
+  const bonusId = r.data.id;
+
+  // El chofer ve sus recibos, descarga el PDF y confirma.
+  r = await driver('GET', '/payments');
+  assert.equal(r.data.length, 3);
+  r = await driver('POST', `/payments/${bonusId}/ack`);
+  assert.ok(r.data.acknowledged_at);
+  r = await driver('POST', '/payments', { kind: 'bono', driver_id: juan.id, paid_at: '2026-10-05', amount: 1, description: 'x' });
+  assert.equal(r.status, 403, 'el chofer no puede crear recibos');
+
+  const pdf = await fetch(`${base}/payments/${weeklyId}/pdf`, { headers: { cookie: await cookieOf(driver) } });
+  assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+  const bytes = Buffer.from(await pdf.arrayBuffer());
+  assert.equal(bytes.subarray(0, 5).toString(), '%PDF-');
+
+  const other = client();
+  await other('POST', '/setup', {});
+  r = await other('GET', `/payments/${weeklyId}`);
+  assert.equal(r.status, 401);
+
+  r = await admin('POST', `/payments/${weeklyId}/cancel`, { reason: 'Error de captura' });
+  assert.equal(r.data.status, 'cancelado');
+  r = await driver('POST', `/payments/${weeklyId}/ack`);
+  assert.equal(r.status, 400);
 });
