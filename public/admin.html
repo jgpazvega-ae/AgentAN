@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#13294b">
+  <title>Administración</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand-link" aria-label="Página de la empresa"><img class="brand-logo" src="/img/logo-light.png" alt="AN Mobility Group"></a>
+    <div class="brand" id="brand">Administración</div>
+    <button class="btn-sm" id="btn-menu">Menú</button>
+  </header>
+  <nav class="tabs">
+    <button class="active" data-tab="trips">Viajes</button>
+    <button data-tab="drivers">Choferes</button>
+    <button data-tab="vehicles">Vehículos</button>
+    <button data-tab="payments">Pagos</button>
+    <button data-tab="report">Rendimiento</button>
+    <button data-tab="quotes">Cotizaciones <span id="quotes-count" class="count hidden"></span></button>
+    <button data-tab="company">Empresa</button>
+  </nav>
+
+  <main class="container">
+    <div id="banners"></div>
+
+    <!-- Viajes -->
+    <section id="tab-trips">
+      <div class="toolbar">
+        <button class="btn-primary" id="new-trip">＋ Nuevo viaje</button>
+        <div class="grow"></div>
+        <label>Mostrar
+          <select id="f-scope">
+            <option value="open">En curso y por hacer</option>
+            <option value="closed">Finalizados y cancelados</option>
+            <option value="">Todos</option>
+          </select>
+        </label>
+        <label>Chofer <select id="f-driver"><option value="">Todos</option></select></label>
+      </div>
+      <div class="card table-wrap" style="padding:0">
+        <table class="list">
+          <thead><tr><th>#</th><th>Estado</th><th>Recolección</th><th>Ruta</th><th>Chofer</th><th class="num">km</th><th class="num">km/L</th></tr></thead>
+          <tbody id="trips-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Choferes -->
+    <section id="tab-drivers" class="hidden">
+      <div class="toolbar"><button class="btn-primary" id="new-user">＋ Nuevo chofer</button></div>
+      <div class="card table-wrap" style="padding:0">
+        <table class="list">
+          <thead><tr><th>Nombre</th><th>Correo</th><th>Teléfono</th><th>Rol</th><th>Notificaciones</th><th class="num">Viajes abiertos</th><th>Estado</th></tr></thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Vehículos -->
+    <section id="tab-vehicles" class="hidden">
+      <div class="toolbar"><button class="btn-primary" id="new-vehicle">＋ Nuevo vehículo</button></div>
+      <div class="card table-wrap" style="padding:0">
+        <table class="list">
+          <thead><tr><th>Nombre</th><th>Placas</th><th>Combustible</th><th class="num">Último odómetro</th><th>Estado</th></tr></thead>
+          <tbody id="vehicles-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Pagos -->
+    <section id="tab-payments" class="hidden">
+      <div class="subtabs">
+        <button class="active" data-kind="semanal">Pagos semanales</button>
+        <button data-kind="bono">Bonos</button>
+      </div>
+      <div class="toolbar">
+        <button class="btn-primary" id="new-payment">＋ Nuevo pago semanal</button>
+        <div class="grow"></div>
+        <label>Chofer <select id="p-driver"><option value="">Todos</option></select></label>
+        <label>Año <select id="p-year"></select></label>
+      </div>
+      <div class="card table-wrap" style="padding:0">
+        <table class="list">
+          <thead><tr><th>Folio</th><th id="p-col-week">Semana</th><th>Chofer</th><th>Fecha de pago</th><th class="num">Importe</th><th>Estado</th><th></th></tr></thead>
+          <tbody id="payments-body"></tbody>
+        </table>
+      </div>
+      <p class="muted small">El chofer ve sus recibos en su app, puede descargarlos en PDF y confirmar que los recibió.</p>
+    </section>
+
+    <!-- Rendimiento -->
+    <section id="tab-report" class="hidden">
+      <div class="toolbar">
+        <label>Desde <input type="date" id="r-from"></label>
+        <label>Hasta <input type="date" id="r-to"></label>
+        <button id="r-apply">Aplicar</button>
+      </div>
+      <div class="alert alert-info small">
+        El rendimiento se calcula con los km del odómetro (final − inicial) entre los litros cargados en cada viaje.
+        Para que sea preciso, pide a los choferes llenar el tanque al terminar cada viaje y registrar esa carga.
+      </div>
+      <div class="grid-2">
+        <div class="card"><h3>Por vehículo</h3><div class="table-wrap" id="r-vehicles"></div></div>
+        <div class="card"><h3>Por chofer</h3><div class="table-wrap" id="r-drivers"></div></div>
+      </div>
+      <div class="card"><h3>Viajes finalizados</h3><div class="table-wrap" id="r-trips"></div></div>
+    </section>
+    <!-- Cotizaciones -->
+    <section id="tab-quotes" class="hidden">
+      <p class="muted small">Solicitudes enviadas desde el formulario de la página de la empresa. También te llegan por correo.</p>
+      <div id="quotes-list"></div>
+    </section>
+
+    <!-- Empresa -->
+    <section id="tab-company" class="hidden">
+      <form id="company-form" class="card narrow" style="margin:0 auto">
+        <h2>Datos de la empresa</h2>
+        <p class="muted small">Se muestran en la <a href="/" target="_blank">página pública</a>, en los correos y en los recibos de pago.</p>
+        <label>Nombre de la empresa</label><input name="name" maxlength="100" required>
+        <label>Frase principal (portada)</label><input name="tagline" maxlength="200">
+        <label>Nosotros (opcional; si queda vacío no se muestra la sección)</label>
+        <textarea name="about" maxlength="2000" rows="5" placeholder="Quiénes somos, desde cuándo operamos, qué tipo de carga movemos…"></textarea>
+        <label>Zona de servicio</label><input name="service_area" maxlength="300" placeholder="Ej. Nuevo León y el noreste del país">
+        <div class="grid-2">
+          <div><label>Teléfono</label><input name="phone" type="tel" maxlength="40"></div>
+          <div><label>WhatsApp (10 dígitos)</label><input name="whatsapp" type="tel" maxlength="40"></div>
+          <div><label>Correo de contacto (público)</label><input name="email" type="email" maxlength="200"></div>
+          <div><label>Correo que recibe las cotizaciones</label><input name="quotes_email" type="email" maxlength="200" placeholder="Si se deja vacío, el de contacto"></div>
+          <div><label>RFC (para recibos)</label><input name="rfc" maxlength="20"></div>
+        </div>
+        <label>Dirección</label><input name="address" maxlength="300">
+        <div class="msg"></div>
+        <div class="dialog-actions"><a class="btn" href="/" target="_blank">Ver página</a><button class="btn-primary">Guardar</button></div>
+      </form>
+
+      <form id="pricing-form" class="card narrow" style="margin:16px auto 0">
+        <h2>Tarifas del cotizador</h2>
+        <p class="muted small">Precio = tarifa base (incluye los primeros km desde <span id="pricing-origin"></span>) + km adicionales × tarifa por km. Distancia por carretera, solo ida. Sin casetas ni IVA. Los clientes ven el precio estimado en la página.</p>
+        <label>Km incluidos en la tarifa base</label>
+        <input name="included_km" type="number" min="0" max="500" step="1" required style="max-width:140px">
+        <div class="table-wrap" style="margin-top:10px">
+          <table class="list">
+            <thead><tr><th>Mostrar</th><th>Unidad</th><th class="num">Base $</th><th class="num">$ por km adicional</th></tr></thead>
+            <tbody id="pricing-body"></tbody>
+          </table>
+        </div>
+        <h3 style="margin-top:14px">Pago con tarjeta</h3>
+        <p class="muted small">En México no se puede cobrar un recargo por pagar con tarjeta. Lo permitido es un <b>precio de lista</b> igual para cualquier forma de pago y un <b>descuento</b> para efectivo o transferencia. Las tarifas de arriba son el precio con descuento; el precio de lista se calcula para cubrir la comisión de la terminal (Mercado Pago cobra alrededor de 3.5% + IVA; revisa tu plan). Pon 0 para no usar descuento.</p>
+        <label>Descuento por pago en efectivo o transferencia (%)</label>
+        <input name="cash_discount" type="number" min="0" max="20" step="0.1" style="max-width:140px">
+
+        <h3 style="margin-top:14px">Impuestos</h3>
+        <p class="muted small">Porcentajes sobre el subtotal. La retención de IVA solo aplica a fletes (transporte de bienes). La de ISR 1.25% aplica cuando facturas como persona física en RESICO a una empresa. Confírmalo con tu contador.</p>
+        <div class="table-wrap">
+          <table class="list" id="tax-table">
+            <thead><tr><th>Concepto</th><th class="num">%</th><th>Persona física</th><th>Persona moral</th></tr></thead>
+            <tbody>
+              <tr><td>IVA (se suma)</td><td class="num"><input data-tax="iva" type="number" min="0" max="50" step="0.01" style="width:80px"></td><td><input type="checkbox" data-rule="fisica.iva" style="width:auto"></td><td><input type="checkbox" data-rule="moral.iva" style="width:auto"></td></tr>
+              <tr><td>Retención de IVA (se resta, solo fletes)</td><td class="num"><input data-tax="ret_iva" type="number" min="0" max="50" step="0.01" style="width:80px"></td><td><input type="checkbox" data-rule="fisica.ret_iva" style="width:auto"></td><td><input type="checkbox" data-rule="moral.ret_iva" style="width:auto"></td></tr>
+              <tr><td>Retención de ISR (se resta)</td><td class="num"><input data-tax="ret_isr" type="number" min="0" max="50" step="0.01" style="width:80px"></td><td><input type="checkbox" data-rule="fisica.ret_isr" style="width:auto"></td><td><input type="checkbox" data-rule="moral.ret_isr" style="width:auto"></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 style="margin-top:14px">Ejemplos con estas tarifas</h3>
+        <div class="table-wrap" id="pricing-examples"></div>
+        <div class="msg"></div>
+        <div class="dialog-actions"><button class="btn-primary">Guardar tarifas</button></div>
+      </form>
+    </section>
+  </main>
+
+  <!-- Menú -->
+  <dialog id="menu">
+    <div class="dialog-body">
+      <h2 id="menu-name"></h2>
+      <p class="muted small" id="menu-email"></p>
+      <div style="display:grid;gap:8px">
+        <button id="menu-push">🔔 Activar notificaciones</button>
+        <button id="menu-install" class="hidden">📲 Instalar en este dispositivo</button>
+        <a class="btn" href="/chofer.html">🚚 Ver la pantalla del chofer</a>
+        <button id="menu-password">🔑 Cambiar contraseña</button>
+        <button id="menu-logout" class="btn-danger">Salir</button>
+      </div>
+      <p class="muted small" id="menu-email-status"></p>
+      <div class="dialog-actions"><button class="btn-primary" data-close>Cerrar</button></div>
+    </div>
+  </dialog>
+
+  <!-- Formulario de viaje -->
+  <dialog id="trip-dialog" class="wide">
+    <form id="trip-form">
+      <h2 id="trip-form-title">Nuevo viaje</h2>
+      <div class="grid-2">
+        <div><label>Chofer</label><select name="driver_id" required></select></div>
+        <div><label>Vehículo</label><select name="vehicle_id"><option value="">— Sin asignar —</option></select></div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <h3 style="margin-top:14px">📍 Punto de recolección</h3>
+          <div id="pickup-picker"></div>
+          <label>Fecha y hora de recolección (pactada)</label>
+          <input type="datetime-local" name="pickup_at" required>
+        </div>
+        <div>
+          <h3 style="margin-top:14px">🏁 Destino final</h3>
+          <div id="dest-picker"></div>
+          <label>Fecha y hora de entrega (opcional)</label>
+          <input type="datetime-local" name="delivery_at">
+          <p class="muted small">Si se carga un día y se sale al siguiente, pon aquí la fecha de entrega. El chofer marcará “Terminé de cargar” y después “Salir rumbo al destino” cuando arranque.</p>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div><label>Cliente</label><input name="client" maxlength="200"></div>
+        <div><label>Carga / mercancía</label><input name="cargo" maxlength="500"></div>
+      </div>
+      <label>Notas para el chofer</label>
+      <textarea name="notes" maxlength="2000" placeholder="Contacto en destino, horarios de recepción, indicaciones…"></textarea>
+
+      <details id="odo-fix" class="hidden">
+        <summary class="small muted" style="margin-top:12px;cursor:pointer">Corregir lecturas del odómetro</summary>
+        <div class="grid-2">
+          <div><label>Odómetro inicial (km)</label><input name="odo_start" type="number" step="0.1" min="0"></div>
+          <div><label>Odómetro final (km)</label><input name="odo_end" type="number" step="0.1" min="0"></div>
+        </div>
+      </details>
+
+      <div class="msg"></div>
+      <div class="dialog-actions">
+        <button type="button" data-close>Cancelar</button>
+        <button class="btn-primary" id="trip-save">Guardar y avisar al chofer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Detalle de viaje -->
+  <dialog id="detail-dialog" class="wide">
+    <div class="dialog-body" id="detail-body"></div>
+  </dialog>
+
+  <!-- Usuario -->
+  <dialog id="user-dialog">
+    <form id="user-form">
+      <h2 id="user-form-title">Nuevo chofer</h2>
+      <label>Nombre completo</label><input name="name" required maxlength="100">
+      <label>Correo (con este inicia sesión y recibe avisos)</label><input name="email" type="email" required>
+      <label>Teléfono</label><input name="phone" type="tel" maxlength="40">
+      <label>Rol</label>
+      <select name="role"><option value="driver">Chofer</option><option value="admin">Administrador</option></select>
+      <label id="user-password-label">Contraseña (mínimo 8 caracteres)</label>
+      <input name="password" type="text" minlength="8" autocomplete="new-password">
+      <label class="checkbox" id="user-welcome-row"><input type="checkbox" name="sendWelcome" checked> Enviarle por correo sus datos de acceso</label>
+      <label class="checkbox hidden" id="user-active-row"><input type="checkbox" name="active"> Activo (puede iniciar sesión)</label>
+      <div class="msg"></div>
+      <div class="dialog-actions">
+        <button type="button" data-close>Cancelar</button>
+        <button class="btn-primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Vehículo -->
+  <dialog id="vehicle-dialog">
+    <form id="vehicle-form">
+      <h2 id="vehicle-form-title">Nuevo vehículo</h2>
+      <label>Nombre o número económico</label><input name="name" required maxlength="100" placeholder="Ej. Camión 3.5 t blanco">
+      <div class="grid-2">
+        <div><label>Placas</label><input name="plate" maxlength="20"></div>
+        <div><label>Combustible</label>
+          <select name="fuel_type"><option>Diésel</option><option>Gasolina</option><option>Gas LP</option><option>Otro</option></select>
+        </div>
+      </div>
+      <label>Odómetro actual (km)</label><input name="last_odometer" type="number" step="0.1" min="0">
+      <label class="checkbox hidden" id="vehicle-active-row"><input type="checkbox" name="active"> Activo</label>
+      <div class="msg"></div>
+      <div class="dialog-actions">
+        <button type="button" data-close>Cancelar</button>
+        <button class="btn-primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Pago semanal -->
+  <dialog id="weekly-dialog" class="wide">
+    <form id="weekly-form">
+      <h2>Nuevo pago semanal (destajo)</h2>
+      <div class="grid-2">
+        <div><label>Chofer</label><select name="driver_id" required></select></div>
+        <div class="row" style="align-items:end">
+          <div class="grow"><label>Semana</label>
+            <div class="row" style="flex-wrap:nowrap">
+              <span class="week-prefix">CW</span>
+              <input name="week" type="number" min="1" max="53" required style="width:90px">
+              <select name="year" style="width:110px"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="muted small" id="weekly-range"></p>
+      <div id="weekly-existing"></div>
+
+      <h3 style="margin-top:12px">Viajes terminados en la semana</h3>
+      <div id="weekly-trips"></div>
+      <button type="button" class="btn-sm" id="weekly-add-line" style="margin-top:6px">＋ Agregar otro concepto</button>
+
+      <div class="grid-2">
+        <div><label>Total pagado $</label><input name="amount" type="number" step="0.01" min="0" inputmode="decimal" required></div>
+        <div><label>Fecha de pago</label><input name="paid_at" type="date" required></div>
+        <div><label>Forma de pago</label>
+          <select name="method"><option>Transferencia</option><option>Efectivo</option><option>Depósito</option><option>Otro</option></select></div>
+        <div><label>Referencia (opcional)</label><input name="reference" maxlength="120" placeholder="Núm. de operación, etc."></div>
+      </div>
+      <label>Notas (lo que cubre este pago)</label>
+      <textarea name="notes" maxlength="2000"></textarea>
+      <div class="msg"></div>
+      <div class="dialog-actions">
+        <button type="button" data-close>Cancelar</button>
+        <button class="btn-primary">Generar recibo</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Bono -->
+  <dialog id="bonus-dialog">
+    <form id="bonus-form">
+      <h2>Nuevo bono</h2>
+      <label>Chofer</label><select name="driver_id" required></select>
+      <label>Descripción del bono</label>
+      <textarea name="description" required maxlength="1000" placeholder="Ej. Bono por puntualidad en entregas de septiembre"></textarea>
+      <div class="grid-2">
+        <div><label>Importe $</label><input name="amount" type="number" step="0.01" min="0" inputmode="decimal" required></div>
+        <div><label>Fecha de pago</label><input name="paid_at" type="date" required></div>
+      </div>
+      <label class="checkbox"><input type="checkbox" name="with_week"> Relacionar con una semana</label>
+      <div class="row hidden" id="bonus-week-row" style="flex-wrap:nowrap">
+        <span class="week-prefix">CW</span>
+        <input name="week" type="number" min="1" max="53" style="width:90px">
+        <select name="year" style="width:110px"></select>
+      </div>
+      <div class="grid-2">
+        <div><label>Forma de pago</label>
+          <select name="method"><option>Transferencia</option><option>Efectivo</option><option>Depósito</option><option>Otro</option></select></div>
+        <div><label>Referencia (opcional)</label><input name="reference" maxlength="120"></div>
+      </div>
+      <label>Notas (opcional)</label>
+      <textarea name="notes" maxlength="2000"></textarea>
+      <div class="msg"></div>
+      <div class="dialog-actions">
+        <button type="button" data-close>Cancelar</button>
+        <button class="btn-primary">Generar recibo</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/maps.js"></script>
+  <script src="/js/admin.js"></script>
+  <script src="/js/admin-payments.js"></script>
+  <script src="/js/admin-site.js"></script>
+</body>
+</html>

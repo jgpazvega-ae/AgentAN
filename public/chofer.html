@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#13294b">
+  <title>Mis viajes</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand-link" aria-label="Página de la empresa"><img class="brand-logo" src="/img/logo-light.png" alt="AN Mobility Group"></a>
+    <div class="brand" id="brand">Mis viajes</div>
+    <button class="btn-sm" id="btn-refresh" title="Actualizar">↻</button>
+    <button class="btn-sm" id="btn-menu">Menú</button>
+  </header>
+  <nav class="tabs">
+    <button class="active" data-tab="open">Pendientes</button>
+    <button data-tab="closed">Historial</button>
+    <button data-tab="payments">Pagos</button>
+  </nav>
+
+  <main class="container narrow">
+    <div id="banners"></div>
+    <div id="list"></div>
+  </main>
+
+  <!-- Menú -->
+  <dialog id="menu">
+    <div class="dialog-body">
+      <h2 id="menu-name"></h2>
+      <p class="muted small" id="menu-email"></p>
+      <div style="display:grid;gap:8px">
+        <button id="menu-push">🔔 Activar notificaciones</button>
+        <button id="menu-install" class="hidden">📲 Instalar en el celular</button>
+        <button id="menu-password">🔑 Cambiar contraseña</button>
+        <button id="menu-logout" class="btn-danger">Salir</button>
+      </div>
+      <div class="dialog-actions"><button class="btn-primary" data-close>Cerrar</button></div>
+    </div>
+  </dialog>
+
+  <!-- Foto del odómetro -->
+  <dialog id="odo-dialog">
+    <form id="odo-form">
+      <h2 id="odo-title">Foto del odómetro</h2>
+      <p class="muted small" id="odo-help"></p>
+      <label class="photo-input" id="odo-photo-label">
+        <span id="odo-photo-text">📷 Toca para tomar la foto del odómetro</span>
+        <img id="odo-preview" class="hidden" alt="Vista previa">
+        <input type="file" name="photo" accept="image/*" capture="environment">
+      </label>
+      <label for="odo-reading">Lectura del odómetro (km)</label>
+      <input id="odo-reading" name="odometer" type="number" inputmode="decimal" step="0.1" min="0" required placeholder="Ej. 125430">
+      <p class="muted small" id="odo-hint"></p>
+      <div id="odo-msg"></div>
+      <div class="dialog-actions">
+        <button type="button" data-close>Cancelar</button>
+        <button class="btn-primary" id="odo-submit">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Carga de combustible -->
+  <dialog id="fuel-dialog">
+    <form id="fuel-form">
+      <h2>Carga de combustible</h2>
+      <p class="muted small">Registra cada vez que cargues combustible durante el viaje. Si es posible, llena el tanque completo.</p>
+      <div class="grid-2">
+        <div><label>Litros</label><input name="liters" type="number" inputmode="decimal" step="0.01" min="0.1" required></div>
+        <div><label>Importe $ (opcional)</label><input name="amount" type="number" inputmode="decimal" step="0.01" min="0"></div>
+      </div>
+      <label>Odómetro al cargar (opcional)</label>
+      <input name="odometer" type="number" inputmode="decimal" step="0.1" min="0">
+      <label>Foto del ticket (opcional)</label>
+      <label class="photo-input">
+        <span class="photo-text">📷 Toca para tomar la foto del ticket</span>
+        <img class="hidden preview" alt="Vista previa">
+        <input type="file" name="photo" accept="image/*" capture="environment">
+      </label>
+      <div class="msg"></div>
+      <div class="dialog-actions">
+        <button type="button" data-close>Cancelar</button>
+        <button class="btn-primary">Guardar carga</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Nota -->
+  <dialog id="note-dialog">
+    <form id="note-form">
+      <h2>Enviar nota a la oficina</h2>
+      <p class="muted small">Retrasos, incidentes, cambios en la carga, etc.</p>
+      <textarea name="note" required maxlength="1000"></textarea>
+      <div class="msg"></div>
+      <div class="dialog-actions">
+        <button type="button" data-close>Cancelar</button>
+        <button class="btn-primary">Enviar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/driver.js"></script>
+</body>
+</html>
