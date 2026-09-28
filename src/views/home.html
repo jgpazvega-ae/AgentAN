@@ -100,11 +100,27 @@
             <div class="seg" role="tablist" id="svc-tabs"></div>
             <label>Unidad</label>
             <div class="vehicles" id="vehicles"></div>
+            <div id="route-mode-wrap" class="hidden">
+              <label>Ruta</label>
+              <div class="seg" id="route-mode">
+                <button type="button" data-mode="city" class="active">Desde Querétaro</button>
+                <button type="button" data-mode="custom">Elegir origen y destino</button>
+              </div>
+            </div>
+            <div id="custom-route" class="hidden">
+              <label>¿De dónde sale?</label>
+              <div class="ac-box" id="orig-ac"></div>
+              <label>¿A dónde va?</label>
+              <div class="ac-box" id="dest-ac"></div>
+              <div class="route-info" id="route-info" aria-live="polite"></div>
+            </div>
+            <div id="city-route">
             <label for="dest-city">Destino</label>
             <select id="dest-city"></select>
             <div id="km-row" class="hidden">
               <label for="dest-km">Distancia aproximada por carretera (km, solo ida)</label>
               <input id="dest-km" type="number" min="0" step="1" inputmode="numeric" placeholder="Opcional">
+            </div>
             </div>
             <label>Tipo de cliente</label>
             <div class="seg" role="tablist" id="client-tabs">

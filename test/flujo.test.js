@@ -330,6 +330,12 @@ test('tarifas del cotizador y versión para GitHub Pages', async () => {
   assert.doesNotMatch(page, /(href|src)="\/[^/]/, 'solo rutas relativas');
   assert.match(page, /"static":true/);
   assert.match(page, /id="cuanto-pagare"/, 'sección ¿Cuánto pagaré?');
+  assert.match(page, /"mapsKey":""/, 'sin llave de Google no se activa la ruta personalizada');
+
+  // Ruta personalizada: la mitad del recorrido completo de la unidad.
+  const { routeKm } = require('../src/pricing');
+  assert.equal(routeKm({ baseToOrigin: 0, originToDest: 171, destToBase: 171 }), 171, 'saliendo de Querétaro = viaje normal');
+  assert.equal(routeKm({ baseToOrigin: 171, originToDest: 480, destToBase: 335 }), 493, 'León → Puebla');
   for (const f of ['css/site.css', 'js/cotizador.js', 'img/logo.png', 'login.html']) assert.ok(fs.existsSync(path.join(out, f)), f);
 });
 

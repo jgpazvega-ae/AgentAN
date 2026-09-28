@@ -143,3 +143,9 @@ h3 { font-size: 1.1rem; }
 .money-input span { padding: 0 4px 0 14px; font-weight: 700; color: var(--navy); font-size: 1.2rem; }
 .money-input input { border: 0 !important; font-size: 1.3rem !important; font-weight: 700; }
 .money-input:focus-within { outline: 2px solid var(--green); outline-offset: 1px; }
+
+/* Ruta con origen y destino */
+.ac-box input, .ac-box gmp-place-autocomplete { width: 100%; }
+.ac-box input { font: inherit; padding: 10px 12px; border: 1px solid #cfd6e2; border-radius: 10px; background: #fff; color: var(--ink); }
+.route-info { margin-top: 10px; font-size: .88rem; color: var(--muted); line-height: 1.5; }
+.route-info b { color: var(--navy); }

@@ -15,11 +15,13 @@ const root = path.join(__dirname, '..');
 const out = path.join(root, '_site');
 const site = JSON.parse(fs.readFileSync(path.join(root, 'pages', 'sitio.json'), 'utf8'));
 delete site._instrucciones;
+const mapsKey = site.google_maps_api_key || process.env.GOOGLE_MAPS_API_KEY || '';
+delete site.google_maps_api_key;
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 // Si el acceso de choferes ya está publicado en otro dominio, se puede indicar aquí.
 const loginUrl = process.env.LOGIN_URL || 'login.html';
 
-let html = renderHome(site, mergePricing(null), { static: true, loginUrl, appUrl: process.env.PAGES_URL || '' });
+let html = renderHome(site, mergePricing(null), { static: true, loginUrl, appUrl: process.env.PAGES_URL || '', mapsKey });
 html = html
   // GitHub Pages publica en /<repositorio>/: se usan rutas relativas.
   .replace(/(href|src)="\/(?!\/)/g, '$1="./')

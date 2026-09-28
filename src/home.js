@@ -12,7 +12,8 @@ const digits = (v) => String(v || '').replace(/\D/g, '');
 const intl = (v) => (digits(v).length === 10 ? `52${digits(v)}` : digits(v));
 
 // site: datos públicos de la empresa; pricing: tarifas del cotizador;
-// opts.static: versión sin servidor (GitHub Pages); opts.loginUrl: enlace de "Iniciar sesión".
+// opts.static: versión sin servidor (GitHub Pages); opts.loginUrl: enlace de "Iniciar sesión";
+// opts.mapsKey: llave de Google Maps para que el cliente elija origen y destino.
 function renderHome(site, pricing, opts = {}) {
   const wa = intl(site.whatsapp);
   const values = {
@@ -28,6 +29,7 @@ function renderHome(site, pricing, opts = {}) {
     pageData: JSON.stringify({
       pricing: { ...pricing, cities: [...pricing.cities].sort((a, b) => a.km - b.km) },
       static: Boolean(opts.static),
+      mapsKey: opts.mapsKey || '',
       whatsapp: wa,
       email: site.email || '',
     }).replace(/</g, '\\u003c'),

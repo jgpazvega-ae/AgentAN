@@ -61,7 +61,21 @@ Formas de pago que se muestran: efectivo, transferencia y tarjeta de crédito o 
 
 **Comisión de la tarjeta.** En México no se puede cobrar un recargo por pagar con tarjeta (Ley Federal de Protección al Consumidor; Profeco sanciona). Por eso el cotizador usa un **precio de lista** (el que se muestra y vale para cualquier forma de pago) y un **descuento por pago en efectivo o transferencia** (4% por defecto) que equivale a la comisión. Las tarifas de la tabla son el precio con descuento; por ejemplo, León en 3.5 t: lista $5,110, con transferencia $4,900 (más impuestos). El porcentaje se cambia en el panel → Empresa → Tarifas (0 = sin descuento).
 
-La lista de destinos con sus distancias aproximadas está en `src/pricing.js`. Si el cliente elige “Otro destino”, puede escribir los km. Cada solicitud guarda la unidad y el precio estimado que vio el cliente.
+La lista de destinos con sus distancias aproximadas está en `src/pricing.js`.
+
+### Ruta con origen y destino (Google)
+
+Con una llave de Google configurada, el cotizador muestra la opción **“Elegir origen y destino”**. El cliente busca de dónde sale y a dónde va (Places), y la **Routes API** calcula tres tramos: Querétaro → origen → destino → Querétaro. Se cobra la mitad de ese recorrido completo como “km equivalentes”. Si el origen es Querétaro, da lo mismo que la lista de destinos. Por ejemplo, León → Puebla: (171 + 480 + 335) / 2 = 493 km.
+
+Qué hay que activar en [Google Cloud Console](https://console.cloud.google.com/), en el mismo proyecto y la misma llave del mapa del panel:
+
+1. Facturación activa. Google da un crédito o cuota gratuita mensual; cada cotización con ruta usa 3 consultas de rutas y una sesión de búsqueda de lugares.
+2. APIs: **Maps JavaScript API**, **Places API (New)** y **Routes API**. Para el panel también **Geocoding API** y **Maps Embed API**.
+3. En *Credenciales*, restringe la llave:
+   - **Sitios web**: `https://jgpazvega-ae.github.io/*`, tu dominio (`https://tudominio.com/*`) y, para pruebas, `http://localhost:3000/*`.
+   - **APIs**: solo las de la lista anterior.
+4. Recomendado: en *Cuotas*, pon un límite diario (por ejemplo 500 solicitudes por día en Routes API), y en *Facturación → Presupuestos* crea una alerta, porque la llave va visible en la página.
+5. Pon la llave en `pages/sitio.json` → `google_maps_api_key` (GitHub Pages) y en `.env` → `GOOGLE_MAPS_API_KEY` (servidor). Si el cliente elige “Otro destino”, puede escribir los km. Cada solicitud guarda la unidad y el precio estimado que vio el cliente.
 
 ## Recibos de pago
 

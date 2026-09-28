@@ -25,7 +25,7 @@ const site = require('./site');
 const { renderHome } = require('./home');
 app.get(['/', '/index.html'], (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
-  res.type('html').send(renderHome(site.publicSite(), site.getPricing(), { appUrl: config.appUrl }));
+  res.type('html').send(renderHome(site.publicSite(), site.getPricing(), { appUrl: config.appUrl, mapsKey: config.googleMapsApiKey }));
 });
 
 app.use(
