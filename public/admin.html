@@ -46,7 +46,7 @@
       </div>
       <div class="card table-wrap" style="padding:0">
         <table class="list">
-          <thead><tr><th>#</th><th>Estado</th><th>Recolección</th><th>Ruta</th><th>Chofer</th><th class="num">km</th><th class="num">km/L</th></tr></thead>
+          <thead><tr><th>#</th><th>Estado</th><th>Inicio</th><th>Viaje</th><th>Llegada estimada</th><th>Chofer</th><th class="num">km</th><th class="num">km/L</th></tr></thead>
           <tbody id="trips-body"></tbody>
         </table>
       </div>
@@ -216,25 +216,65 @@
   <dialog id="trip-dialog" class="wide">
     <form id="trip-form">
       <h2 id="trip-form-title">Nuevo viaje</h2>
+      <label>Nombre del viaje</label>
+      <input name="name" maxlength="150" required placeholder="Ej. Tarimas Abarrotes del Bajío → León">
       <div class="grid-2">
         <div><label>Chofer</label><select name="driver_id" required></select></div>
         <div><label>Vehículo</label><select name="vehicle_id"><option value="">— Sin asignar —</option></select></div>
         <div><label>Cliente con acceso a la plataforma (opcional)</label><select name="client_id"><option value="">— Ninguno —</option></select></div>
+        <div>
+          <label>Correos para avisos de estatus (opcional)</label>
+          <input name="notify_emails" maxlength="1000" placeholder="compras@cliente.com, almacen@cliente.com">
+          <p class="muted small">Reciben un correo en cada cambio de estatus con un enlace de seguimiento, sin necesidad de cuenta. Hasta 5, separados por coma.</p>
+        </div>
+      </div>
+
+      <label class="checkbox prepickup-toggle"><input type="checkbox" name="has_prepickup"> Incluye <b>recolección anticipada</b> (mini flete para cargar la unidad antes del viaje principal)</label>
+      <div id="prepickup-box" class="prepickup-box hidden">
+        <h3>📦 Recolección anticipada</h3>
+        <div class="grid-2">
+          <div><div id="prepickup-picker"></div></div>
+          <div>
+            <label>Fecha y hora de la recolección</label>
+            <input type="datetime-local" name="prepickup_at">
+            <p class="muted small">El chofer va primero a este lugar a cargar. La unidad queda cargada y sale del punto de inicio en la fecha y hora de inicio del viaje.</p>
+          </div>
+        </div>
       </div>
 
       <div class="grid-2">
         <div>
-          <h3 style="margin-top:14px">📍 Punto de recolección</h3>
+          <h3 style="margin-top:14px">📍 Punto de inicio</h3>
           <div id="pickup-picker"></div>
-          <label>Fecha y hora de recolección (pactada)</label>
+          <label>Fecha y hora de inicio</label>
           <input type="datetime-local" name="pickup_at" required>
+          <p class="muted small" id="start-help">Donde se carga y de donde sale la unidad rumbo al destino.</p>
         </div>
         <div>
           <h3 style="margin-top:14px">🏁 Destino final</h3>
           <div id="dest-picker"></div>
-          <label>Fecha y hora de entrega (opcional)</label>
+          <label>Entrega pactada con el cliente (opcional)</label>
           <input type="datetime-local" name="delivery_at">
-          <p class="muted small">Si se carga un día y se sale al siguiente, pon aquí la fecha de entrega. El chofer marcará “Terminé de cargar” y después “Salir rumbo al destino” cuando arranque.</p>
+        </div>
+      </div>
+
+      <div class="eta-box">
+        <h3>🕒 Tiempo estimado de llegada (ETA)</h3>
+        <div class="eta-grid">
+          <div>
+            <label>Tiempo de manejo del inicio al destino</label>
+            <div class="row">
+              <input name="route_h" type="number" min="0" max="168" step="1" inputmode="numeric" style="width:90px" aria-label="Horas"> <span>h</span>
+              <input name="route_m" type="number" min="0" max="59" step="1" inputmode="numeric" style="width:90px" aria-label="Minutos"> <span>min</span>
+              <button type="button" class="btn-sm" id="route-calc">↻ Calcular</button>
+            </div>
+            <p class="muted small" id="route-info">Elige el punto de inicio y el destino para calcular la ruta.</p>
+          </div>
+          <div class="eta-result">
+            <span class="muted small">Llegada estimada</span>
+            <b id="eta-value">—</b>
+            <span class="small" id="eta-warn"></span>
+          </div>
         </div>
       </div>
 
@@ -284,6 +324,7 @@
       <label>Teléfono</label><input name="phone" type="tel" maxlength="40">
       <label id="user-password-label">Contraseña (mínimo 8 caracteres)</label>
       <input name="password" type="text" minlength="8" autocomplete="new-password">
+      <label class="checkbox" id="user-notify-row"><input type="checkbox" name="notify_email" checked> Recibir por correo el estatus de cada viaje</label>
       <label class="checkbox" id="user-welcome-row"><input type="checkbox" name="sendWelcome" checked> Enviarle por correo sus datos de acceso</label>
       <label class="checkbox hidden" id="user-active-row"><input type="checkbox" name="active"> Activo (puede iniciar sesión)</label>
       <div class="msg"></div>

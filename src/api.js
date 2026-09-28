@@ -9,6 +9,7 @@ const { get, all, run, transaction } = require('./db');
 const auth = require('./auth');
 const notify = require('./notify');
 const site = require('./site');
+const eta = require('./eta');
 const { HttpError, bad, h, str, num, nowLocal } = require('./http');
 
 const router = express.Router();
@@ -65,9 +66,11 @@ function homePage(role) {
 
 // Lo que el cliente puede ver de su viaje (sin odómetro, combustible ni notas internas).
 const CLIENT_TRIP_FIELDS = [
-  'id', 'status', 'client', 'cargo', 'pickup_address', 'pickup_lat', 'pickup_lng', 'pickup_at',
+  'id', 'name', 'status', 'client', 'cargo', 'pickup_address', 'pickup_lat', 'pickup_lng', 'pickup_at',
+  'prepickup_address', 'prepickup_lat', 'prepickup_lng', 'prepickup_at',
   'dest_address', 'dest_lat', 'dest_lng', 'delivery_at', 'started_at', 'loaded_at', 'departed_at',
   'arrived_at', 'finished_at', 'cancelled_at', 'received_by', 'driver_name', 'vehicle_name', 'vehicle_plate',
+  'route_km', 'route_minutes', 'eta_at', 'eta_live_at', 'eta',
 ];
 function forClient(trip) {
   const out = Object.fromEntries(CLIENT_TRIP_FIELDS.map((k) => [k, trip[k] ?? null]));
@@ -93,7 +96,7 @@ function withMetrics(trip) {
   trip.fuel_used = used > 0 ? Math.round(used * 10) / 10 : null;
   trip.km_per_liter = trip.km != null && trip.fuel_used ? trip.km / trip.fuel_used : null;
   trip.liters_per_100km = trip.km && trip.fuel_used ? (trip.fuel_used / trip.km) * 100 : null;
-  return trip;
+  return eta.withEta(trip);
 }
 
 function loadTrip(id) {
@@ -275,7 +278,7 @@ router.get(
   auth.requireAdmin,
   h((req, res) => {
     res.json(
-      all(`SELECT u.id, u.name, u.email, u.phone, u.role, u.company, u.active, u.created_at,
+      all(`SELECT u.id, u.name, u.email, u.phone, u.role, u.company, u.active, u.notify_email, u.created_at,
                   (SELECT COUNT(*) FROM push_subscriptions p WHERE p.user_id = u.id) AS push_devices,
                   (SELECT COUNT(*) FROM trips t WHERE (t.driver_id = u.id OR t.client_id = u.id)
                       AND t.status IN ('asignado','en_recoleccion','cargado','en_ruta','en_destino','entregado')) AS open_trips
@@ -295,19 +298,21 @@ router.post(
     const role = ROLES.includes(req.body.role) ? req.body.role : 'driver';
     assertCanManage(req.user, role);
     const company = role === 'client' ? str(req.body.company, 150) : null;
+    const notifyEmail = req.body.notify_email === undefined || req.body.notify_email ? 1 : 0;
     const password = String(req.body.password || '');
     if (!name || !email) throw bad('Nombre y correo son obligatorios.');
     if (password.length < 8) throw bad('La contraseña debe tener al menos 8 caracteres.');
     if (get('SELECT id FROM users WHERE email = ?', email)) throw bad('Ya existe un usuario con ese correo.');
     const id = Number(
       run(
-        'INSERT INTO users (name, email, phone, password_hash, role, company) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO users (name, email, phone, password_hash, role, company, notify_email) VALUES (?, ?, ?, ?, ?, ?, ?)',
         name,
         email,
         phone,
         auth.hashPassword(password),
         role,
-        company
+        company,
+        notifyEmail
       ).lastInsertRowid
     );
     if (req.body.sendWelcome) {
@@ -346,16 +351,18 @@ router.put(
     const active = req.body.active !== undefined ? (req.body.active ? 1 : 0) : user.active;
     if (self && !active) throw bad('No puedes desactivar tu propia cuenta.');
     const company = role === 'client' ? (req.body.company !== undefined ? str(req.body.company, 150) : user.company) : null;
+    const notifyEmail = req.body.notify_email !== undefined ? (req.body.notify_email ? 1 : 0) : user.notify_email;
     const clash = get('SELECT id FROM users WHERE email = ? AND id <> ?', email, id);
     if (clash) throw bad('Ya existe un usuario con ese correo.');
     run(
-      'UPDATE users SET name = ?, email = ?, phone = ?, role = ?, active = ?, company = ? WHERE id = ?',
+      'UPDATE users SET name = ?, email = ?, phone = ?, role = ?, active = ?, company = ?, notify_email = ? WHERE id = ?',
       name,
       email,
       phone,
       role,
       active,
       company,
+      notifyEmail,
       id
     );
     if (req.body.password) {
@@ -478,8 +485,19 @@ router.get(
   })
 );
 
+// Lista de correos separados por coma, punto y coma o renglón (máximo 5).
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function readEmailList(value) {
+  const list = [...new Set(String(value || '').split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  const invalid = list.find((e) => !EMAIL_RE.test(e) || e.length > 200);
+  if (invalid) throw bad(`El correo "${invalid}" no es válido.`);
+  if (list.length > 5) throw bad('Puedes agregar hasta 5 correos para avisos.');
+  return list.length ? list.join(', ') : null;
+}
+
 function readTripFields(body) {
   const fields = {
+    name: str(body.name, 150),
     driver_id: num(body.driver_id),
     vehicle_id: num(body.vehicle_id),
     client: str(body.client, 200),
@@ -488,14 +506,22 @@ function readTripFields(body) {
     pickup_address: str(body.pickup_address, 500),
     pickup_lat: num(body.pickup_lat),
     pickup_lng: num(body.pickup_lng),
-    pickup_at: localDateTime(body.pickup_at, 'fecha de recolección', true),
+    pickup_at: localDateTime(body.pickup_at, 'fecha y hora de inicio', true),
     dest_address: str(body.dest_address, 500),
     dest_lat: num(body.dest_lat),
     dest_lng: num(body.dest_lng),
     delivery_at: localDateTime(body.delivery_at, 'fecha de entrega', false),
     client_id: num(body.client_id),
+    notify_emails: readEmailList(body.notify_emails),
+    prepickup_address: null,
+    prepickup_lat: null,
+    prepickup_lng: null,
+    prepickup_at: null,
+    route_km: num(body.route_km),
+    route_minutes: num(body.route_minutes),
+    route_source: ['google', 'manual', 'estimado'].includes(body.route_source) ? body.route_source : null,
   };
-  if (!fields.pickup_address) throw bad('Indica el punto de recolección.');
+  if (!fields.pickup_address) throw bad('Indica el punto de inicio.');
   if (!fields.dest_address) throw bad('Indica el destino final.');
   if (!fields.driver_id) throw bad('Selecciona el chofer.');
   const driver = get("SELECT id FROM users WHERE id = ? AND active = 1 AND role <> 'client'", fields.driver_id);
@@ -507,10 +533,38 @@ function readTripFields(body) {
   }
   if (fields.vehicle_id && !get('SELECT id FROM vehicles WHERE id = ?', fields.vehicle_id)) throw bad('El vehículo no existe.');
   if (fields.delivery_at && fields.delivery_at < fields.pickup_at) {
-    throw bad('La entrega no puede ser antes de la recolección.');
+    throw bad('La entrega no puede ser antes del inicio del viaje.');
   }
+  // Recolección anticipada: mini flete para cargar la unidad antes del viaje principal.
+  if (body.has_prepickup === true || body.has_prepickup === 'true' || body.has_prepickup === 'on') {
+    fields.prepickup_address = str(body.prepickup_address, 500);
+    fields.prepickup_lat = num(body.prepickup_lat);
+    fields.prepickup_lng = num(body.prepickup_lng);
+    fields.prepickup_at = localDateTime(body.prepickup_at, 'fecha y hora de la recolección anticipada', true);
+    if (!fields.prepickup_address) throw bad('Indica el lugar de la recolección anticipada.');
+    if (fields.prepickup_at > fields.pickup_at) throw bad('La recolección anticipada debe ser antes del inicio del viaje.');
+  }
+  // Tiempo de manejo del inicio al destino (para el ETA).
+  if (fields.route_minutes != null) {
+    if (fields.route_minutes <= 0 || fields.route_minutes > 7 * 24 * 60) throw bad('El tiempo estimado de manejo no es válido.');
+    fields.route_minutes = Math.round(fields.route_minutes);
+    fields.route_source = fields.route_source || 'manual';
+  } else {
+    const rough = eta.roughRoute(
+      { lat: fields.pickup_lat, lng: fields.pickup_lng },
+      { lat: fields.dest_lat, lng: fields.dest_lng }
+    );
+    if (rough) Object.assign(fields, { route_km: fields.route_km ?? rough.km, route_minutes: rough.minutes, route_source: 'estimado' });
+  }
+  if (fields.route_km != null) fields.route_km = Math.round(fields.route_km * 10) / 10;
   return fields;
 }
+
+// Columnas del viaje que se guardan igual al crear y al editar.
+const EXTRA_COLS = [
+  'name', 'notify_emails', 'prepickup_address', 'prepickup_lat', 'prepickup_lng', 'prepickup_at',
+  'route_km', 'route_minutes', 'route_source',
+];
 
 router.post(
   '/trips',
@@ -520,8 +574,8 @@ router.post(
     const id = Number(
       run(
         `INSERT INTO trips (driver_id, vehicle_id, client_id, client, cargo, notes, pickup_address, pickup_lat, pickup_lng, pickup_at,
-                            dest_address, dest_lat, dest_lng, delivery_at, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            dest_address, dest_lat, dest_lng, delivery_at, created_by, ${EXTRA_COLS.join(', ')}, track_token)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${EXTRA_COLS.map(() => '?').join(', ')}, ?)`,
         f.driver_id,
         f.vehicle_id,
         f.client_id,
@@ -536,13 +590,15 @@ router.post(
         f.dest_lat,
         f.dest_lng,
         f.delivery_at,
-        req.user.id
+        req.user.id,
+        ...EXTRA_COLS.map((k) => f[k]),
+        crypto.randomBytes(16).toString('hex')
       ).lastInsertRowid
     );
     addEvent(id, req.user.id, 'creado', 'Viaje creado y asignado');
     const trip = loadTrip(id);
     notify.notifyDriverAboutTrip(trip, 'assigned');
-    notify.notifyClientAboutTrip(trip, 'programado');
+    notify.notifyTripStatus(trip, 'programado', req.user.id);
     res.status(201).json(trip);
   })
 );
@@ -568,7 +624,7 @@ router.put(
     run(
       `UPDATE trips SET driver_id = ?, vehicle_id = ?, client_id = ?, client = ?, cargo = ?, notes = ?, pickup_address = ?, pickup_lat = ?,
               pickup_lng = ?, pickup_at = ?, dest_address = ?, dest_lat = ?, dest_lng = ?, delivery_at = ?,
-              odo_start = ?, odo_end = ?, odo_return = ?, updated_at = datetime('now')
+              odo_start = ?, odo_end = ?, odo_return = ?, ${EXTRA_COLS.map((k) => `${k} = ?`).join(', ')}, updated_at = datetime('now')
         WHERE id = ?`,
       f.driver_id,
       f.vehicle_id,
@@ -587,17 +643,25 @@ router.put(
       odoStart,
       odoEnd,
       odoReturn,
+      ...EXTRA_COLS.map((k) => f[k]),
       before.id
     );
     const after = loadTrip(before.id);
-    if (after.client_id && after.client_id !== before.client_id) notify.notifyClientAboutTrip(after, 'programado');
+    // Avisos al cliente: si se le acaba de asignar el viaje, "programado";
+    // si cambió algo que le importa (lugares, horarios, ETA), "reprogramado".
+    const clientFacing = ['name', 'pickup_address', 'pickup_at', 'prepickup_address', 'prepickup_at', 'dest_address', 'delivery_at', 'eta_at'];
+    const newRecipients = (after.client_id && after.client_id !== before.client_id) || (after.notify_emails || '') !== (before.notify_emails || '');
+    if (newRecipients) notify.notifyTripStatus(after, 'programado', req.user.id, { onlyClients: true });
+    else if (after.status !== 'finalizado' && clientFacing.some((k) => (before[k] ?? null) !== (after[k] ?? null))) {
+      notify.notifyTripStatus(after, 'reprogramado', req.user.id, { onlyClients: true });
+    }
 
     if (driverChanged) {
       addEvent(before.id, req.user.id, 'reasignado', `Reasignado de ${before.driver_name || '—'} a ${after.driver_name}`);
       notify.notifyDriverAboutTrip(before, 'cancelled');
       notify.notifyDriverAboutTrip(after, 'assigned');
     } else {
-      const watched = ['pickup_address', 'pickup_at', 'dest_address', 'delivery_at', 'vehicle_id', 'client', 'cargo', 'notes'];
+      const watched = ['name', 'pickup_address', 'pickup_at', 'prepickup_address', 'prepickup_at', 'dest_address', 'delivery_at', 'vehicle_id', 'client', 'cargo', 'notes'];
       const changed = watched.filter((k) => (before[k] ?? null) !== (after[k] ?? null));
       if (odoStart !== before.odo_start || odoEnd !== before.odo_end || odoReturn !== before.odo_return) {
         addEvent(before.id, req.user.id, 'correccion', `Odómetro corregido: ${odoStart ?? '—'} → ${odoEnd ?? '—'} → ${odoReturn ?? '—'}`);
@@ -620,8 +684,9 @@ router.post(
     run("UPDATE trips SET status = 'cancelado', cancelled_at = ?, updated_at = datetime('now') WHERE id = ?", nowLocal(), trip.id);
     addEvent(trip.id, req.user.id, 'cancelado', str(req.body.reason, 500) || 'Viaje cancelado');
     notify.notifyDriverAboutTrip(trip, 'cancelled');
-    notify.notifyClientAboutTrip(trip, 'cancelado');
-    res.json(loadTrip(trip.id));
+    const cancelled = loadTrip(trip.id);
+    notify.notifyTripStatus(cancelled, 'cancelado', req.user.id);
+    res.json(cancelled);
   })
 );
 
@@ -682,7 +747,7 @@ function addPhoto(tripId, kind, file, req) {
 }
 
 // Paso del viaje: valida, guarda fotos y cambia de estado en una sola transacción.
-function tripStep({ from, to, stamp, event, label, apply, clientNotice }) {
+function tripStep({ from, to, stamp, event, label, apply }) {
   return [
     auth.requireUser,
     stepUpload,
@@ -707,12 +772,8 @@ function tripStep({ from, to, stamp, event, label, apply, clientNotice }) {
         throw err;
       }
       const updated = loadTrip(trip.id);
-      const summary =
-        event === 'finalizado' && updated.km != null
-          ? ` · ${Math.round(updated.km)} km${updated.km_per_liter ? ` · ${updated.km_per_liter.toFixed(2)} km/L` : ''}`
-          : '';
-      notify.notifyAdmins(`${updated.driver_name}: ${label.toLowerCase()} (viaje #${trip.id})`, `${updated.pickup_address} → ${updated.dest_address}${summary}`, `/admin.html#viaje-${trip.id}`);
-      if (clientNotice) notify.notifyClientAboutTrip(updated, clientNotice);
+      // Correo y notificación de cada cambio de estatus: personal de AN, cliente y correos adicionales.
+      notify.notifyTripStatus(updated, event, req.user.id);
       res.json(updated);
     }),
   ];
@@ -784,7 +845,6 @@ router.post(
     stamp: 'departed_at',
     event: 'en_ruta',
     label: 'Salió rumbo al destino',
-    clientNotice: 'en_camino',
     apply(trip, files, req) {
       addPhoto(trip.id, 'carga', requirePhoto(files.photo, 'Toma la foto de la carga antes de salir.'), req);
       return 'Salió rumbo al destino · foto de la carga';
@@ -801,7 +861,6 @@ router.post(
     stamp: 'arrived_at',
     event: 'llegada',
     label: 'Llegó al punto de entrega',
-    clientNotice: 'llegada',
     apply(trip, files, req) {
       addPhoto(trip.id, 'llegada', requirePhoto(files.photo, 'Toma la foto de llegada al punto de entrega.'), req);
       return 'Llegó al punto de entrega · foto de llegada';
@@ -819,7 +878,6 @@ router.post(
     stamp: 'finished_at',
     event: 'entregado',
     label: 'Entregó la carga',
-    clientNotice: 'entregado',
     apply(trip, files, req) {
       if (!files.pod.length) throw bad('Toma al menos una foto de la prueba de entrega.');
       const receivedBy = str(req.body.received_by, 150);
@@ -873,7 +931,7 @@ router.post(
     const note = str(req.body.note, 1000);
     if (!note) throw bad('Escribe la nota.');
     addEvent(trip.id, req.user.id, 'nota', note, req.body);
-    notify.notifyAdmins(`Nota de ${req.user.name} (viaje #${trip.id})`, note, `/admin.html#viaje-${trip.id}`);
+    notify.notifyAdmins(`Nota de ${req.user.name} (viaje #${trip.id})`, note, `/admin.html#viaje-${trip.id}`, { email: true });
     res.json({ ok: true });
   })
 );
@@ -951,6 +1009,38 @@ router.get(
         (req.user.role === 'driver' && owner.driver_id === req.user.id) ||
         (req.user.role === 'client' && owner.client_id === req.user.id));
     if (!allowed) throw new HttpError(404, 'Foto no encontrada.');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.sendFile(path.join(config.uploadsDir, file));
+  })
+);
+
+// ---------- Seguimiento público (enlace que se envía por correo o WhatsApp) ----------
+// Cualquiera con el enlace ve lo mismo que el cliente: estatus, ETA y fotos de
+// carga, llegada y entrega. Nunca odómetro, combustible ni notas internas.
+function tripByToken(token) {
+  const t = String(token || '');
+  if (!/^[0-9a-f]{32}$/.test(t)) throw new HttpError(404, 'Enlace de seguimiento no válido.');
+  const row = get('SELECT id FROM trips WHERE track_token = ?', t);
+  if (!row) throw new HttpError(404, 'Enlace de seguimiento no válido.');
+  return loadTrip(row.id);
+}
+
+router.get(
+  '/track/:token',
+  h((req, res) => {
+    const trip = tripByToken(req.params.token);
+    const photos = tripPhotos(trip.id).map(({ kind, file, created_at }) => ({ kind, file, created_at }));
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ...forClient(trip), photos, company: site.getSite().name });
+  })
+);
+
+router.get(
+  '/track/:token/photos/:file',
+  h((req, res) => {
+    const trip = tripByToken(req.params.token);
+    const file = path.basename(req.params.file);
+    if (!get('SELECT id FROM trip_photos WHERE trip_id = ? AND file = ?', trip.id, file)) throw new HttpError(404, 'Foto no encontrada.');
     res.setHeader('Cache-Control', 'private, max-age=86400');
     res.sendFile(path.join(config.uploadsDir, file));
   })

@@ -5,17 +5,6 @@ let me = null;
 let tab = 'open';
 let trips = [];
 
-const OPEN = ['asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino'];
-const CLIENT_STATUS = {
-  asignado: 'Programado',
-  en_recoleccion: 'En recolección',
-  cargado: 'Cargado, por salir',
-  en_ruta: 'En camino',
-  en_destino: 'En el punto de entrega',
-  finalizado: 'Entregado',
-  cancelado: 'Cancelado',
-};
-
 async function init() {
   registerServiceWorker();
   [cfg, me] = await Promise.all([api('/config'), api('/me')]);
@@ -38,7 +27,7 @@ async function init() {
 async function load(silent = false) {
   try {
     const all = await api('/trips');
-    trips = all.filter((t) => (tab === 'open' ? OPEN.includes(t.status) : !OPEN.includes(t.status)));
+    trips = all.filter((t) => (tab === 'open' ? CLIENT_OPEN.includes(t.status) : !CLIENT_OPEN.includes(t.status)));
     render();
     if (!silent) focusFromHash(all);
   } catch (err) {
@@ -46,42 +35,8 @@ async function load(silent = false) {
   }
 }
 
-function photoFigure(p) {
-  return `<figure><img data-zoom src="/api/photos/${encodeURIComponent(p.file)}" alt="${esc(PHOTO_KIND[p.kind])}" loading="lazy">
-    <figcaption>${esc(fmtUtc(p.created_at))}</figcaption></figure>`;
-}
-
 function card(t) {
-  const step = STATUS[t.status]?.step ?? 0;
-  const milestones = [
-    ['Recolección programada', fmtDate(t.pickup_at, true)],
-    ['Salió rumbo al destino', t.departed_at && fmtDate(t.departed_at, true)],
-    ['Llegó al punto de entrega', t.arrived_at && fmtDate(t.arrived_at, true)],
-    ['Entregado', t.finished_at && fmtDate(t.finished_at, true)],
-    ['Recibió', t.received_by],
-    ['Entrega programada', !t.finished_at && t.delivery_at && fmtDate(t.delivery_at, true)],
-    ['Unidad', t.vehicle_name && `${t.vehicle_name}${t.vehicle_plate ? ` · ${t.vehicle_plate}` : ''}`],
-    ['Chofer', t.driver_name],
-    ['Carga', t.cargo],
-  ].filter(([, v]) => v);
-  const groups = ['carga', 'llegada', 'entrega', 'firma']
-    .map((kind) => {
-      const list = t.photos.filter((p) => p.kind === kind);
-      return list.length ? `<div class="photo-group"><h4>${esc(PHOTO_KIND[kind])}</h4><div class="photos">${list.map(photoFigure).join('')}</div></div>` : '';
-    })
-    .join('');
-  return `
-  <article class="card" id="viaje-${t.id}">
-    <div class="card-head">
-      <div><h2>Envío #${t.id}</h2><span class="badge st-${esc(t.status)}">${esc(CLIENT_STATUS[t.status] || t.status)}</span></div>
-      ${t.client ? `<span class="muted small">${esc(t.client)}</span>` : ''}
-    </div>
-    ${t.status !== 'cancelado' ? `<div class="steps">${[1, 2, 3, 4, 5].map((i) => `<span class="${step >= i ? 'done' : ''}"></span>`).join('')}</div>` : ''}
-    <div class="stop"><div class="dot">📍</div><div class="body"><div class="muted small">Origen</div><div class="addr">${esc(t.pickup_address)}</div></div></div>
-    <div class="stop"><div class="dot">🏁</div><div class="body"><div class="muted small">Destino</div><div class="addr">${esc(t.dest_address)}</div></div></div>
-    <dl class="kv" style="margin-top:6px">${milestones.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
-    ${groups || (t.status === 'finalizado' ? '' : '<p class="muted small" style="margin-bottom:0">Aquí aparecerán las fotos de la carga, la llegada y la prueba de entrega.</p>')}
-  </article>`;
+  return shipmentCard(t, { photoSrc: (file) => `/api/photos/${encodeURIComponent(file)}` });
 }
 
 function render() {

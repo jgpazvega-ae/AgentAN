@@ -238,6 +238,24 @@ function addColumn(table, column, type) {
   if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
 }
 addColumn('vehicles', 'tank_liters', 'REAL'); // capacidad del tanque, para convertir el nivel en litros
+// Recibir correos de estatus de los viajes (personal de AN y clientes).
+addColumn('users', 'notify_email', 'INTEGER NOT NULL DEFAULT 1');
+// Nombre del viaje, recolección anticipada (mini flete para cargar la unidad
+// antes del viaje principal) y tiempo estimado de manejo para calcular el ETA.
+addColumn('trips', 'name', 'TEXT');
+addColumn('trips', 'prepickup_address', 'TEXT');
+addColumn('trips', 'prepickup_lat', 'REAL');
+addColumn('trips', 'prepickup_lng', 'REAL');
+addColumn('trips', 'prepickup_at', 'TEXT');
+addColumn('trips', 'route_km', 'REAL');
+addColumn('trips', 'route_minutes', 'INTEGER');
+addColumn('trips', 'route_source', 'TEXT'); // google | manual | estimado
+// Correos adicionales que reciben el estatus (contactos del cliente sin cuenta).
+addColumn('trips', 'notify_emails', 'TEXT');
+// Enlace público de seguimiento (sin iniciar sesión).
+addColumn('trips', 'track_token', 'TEXT');
+db.exec("UPDATE trips SET track_token = lower(hex(randomblob(16))) WHERE track_token IS NULL");
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS trips_track_token ON trips(track_token)');
 addColumn('quote_requests', 'service', 'TEXT');
 addColumn('quote_requests', 'vehicle', 'TEXT');
 addColumn('quote_requests', 'km', 'REAL');

@@ -9,6 +9,8 @@ let editingUser = null;
 let editingVehicle = null;
 let pickupPicker;
 let destPicker;
+let prepickupPicker;
+let fillingTripForm = false; // mientras se llena el formulario no se recalcula la ruta
 
 async function init() {
   registerServiceWorker();
@@ -27,8 +29,10 @@ async function init() {
   $('#menu-email-status').textContent = cfg.emailEnabled
     ? '✉️ Envío de correos activo.'
     : '✉️ El envío de correos no está configurado (ver README: variables SMTP).';
-  pickupPicker = new PlacePicker($('#pickup-picker'), { apiKey: cfg.googleMapsApiKey, placeholder: 'Dirección de recolección' });
-  destPicker = new PlacePicker($('#dest-picker'), { apiKey: cfg.googleMapsApiKey, placeholder: 'Dirección de destino' });
+  const routeChanged = () => !fillingTripForm && scheduleRoute();
+  pickupPicker = new PlacePicker($('#pickup-picker'), { apiKey: cfg.googleMapsApiKey, placeholder: 'Dirección del punto de inicio', onChange: routeChanged });
+  destPicker = new PlacePicker($('#dest-picker'), { apiKey: cfg.googleMapsApiKey, placeholder: 'Dirección de destino', onChange: routeChanged });
+  prepickupPicker = new PlacePicker($('#prepickup-picker'), { apiKey: cfg.googleMapsApiKey, placeholder: 'Dirección de la recolección anticipada' });
   syncPushSubscription();
   renderBanners();
   await Promise.all([loadUsers(), loadVehicles()]);
@@ -70,14 +74,14 @@ async function loadTrips() {
     trips = await api(`/trips?${params}`);
     renderTrips();
   } catch (err) {
-    $('#trips-body').innerHTML = `<tr><td colspan="7">${esc(err.message)}</td></tr>`;
+    $('#trips-body').innerHTML = `<tr><td colspan="8">${esc(err.message)}</td></tr>`;
   }
 }
 
 function renderTrips() {
   const body = $('#trips-body');
   if (!trips.length) {
-    body.innerHTML = `<tr><td colspan="7" class="empty">No hay viajes. Crea uno con “Nuevo viaje”.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" class="empty">No hay viajes. Crea uno con “Nuevo viaje”.</td></tr>`;
     return;
   }
   body.innerHTML = trips
@@ -86,8 +90,9 @@ function renderTrips() {
       <tr class="clickable" data-id="${t.id}">
         <td>${t.id}</td>
         <td>${statusBadge(t.status)}</td>
-        <td style="white-space:nowrap">${esc(fmtDate(t.pickup_at))}</td>
-        <td><div>${esc(t.pickup_address)}</div><div class="muted small">→ ${esc(t.dest_address)}</div></td>
+        <td style="white-space:nowrap">${esc(fmtDate(t.pickup_at))}${t.prepickup_at ? `<div class="muted small">📦 ${esc(fmtDate(t.prepickup_at))}</div>` : ''}</td>
+        <td>${t.name ? `<b>${esc(t.name)}</b>` : ''}<div class="${t.name ? 'muted small' : ''}">${esc(t.pickup_address)}</div><div class="muted small">→ ${esc(t.dest_address)}</div></td>
+        <td style="white-space:nowrap">${t.eta ? `<span class="eta-chip">${esc(fmtDate(t.eta))}</span>${t.eta_live_at ? '<div class="muted small">en ruta</div>' : ''}` : '<span class="muted">—</span>'}</td>
         <td>${esc(t.driver_name || '—')}<div class="muted small">${esc(t.vehicle_name || '')}</div></td>
         <td class="num">${t.km != null ? fmtNum(t.km) : '—'}</td>
         <td class="num">${t.km_per_liter ? fmtNum(t.km_per_liter, 2) : '—'}</td>
@@ -147,17 +152,129 @@ function openTripForm(trip) {
   form.driver_id.disabled = Boolean(trip && trip.status !== 'asignado');
   form.vehicle_id.value = t.vehicle_id || '';
   form.client_id.value = t.client_id || '';
+  form.elements.name.value = t.name || '';
+  form.notify_emails.value = t.notify_emails || '';
   form.pickup_at.value = t.pickup_at || '';
   form.delivery_at.value = t.delivery_at || '';
+  form.has_prepickup.checked = Boolean(t.prepickup_address);
+  form.prepickup_at.value = t.prepickup_at || '';
+  routeState = { km: t.route_km ?? null, source: t.route_source || null };
+  setRouteMinutes(t.route_minutes ?? null);
+  $('#route-info').textContent = t.route_minutes != null ? routeInfoText() : 'Elige el punto de inicio y el destino para calcular la ruta.';
   form.client.value = t.client || '';
   form.cargo.value = t.cargo || '';
   form.notes.value = t.notes || '';
   form.odo_start.value = t.odo_start ?? '';
   form.odo_end.value = t.odo_end ?? '';
   form.odo_return.value = t.odo_return ?? '';
+  fillingTripForm = true;
   pickupPicker.setValue({ address: t.pickup_address, lat: t.pickup_lat, lng: t.pickup_lng });
   destPicker.setValue({ address: t.dest_address, lat: t.dest_lat, lng: t.dest_lng });
+  prepickupPicker.setValue({ address: t.prepickup_address, lat: t.prepickup_lat, lng: t.prepickup_lng });
+  fillingTripForm = false;
+  syncPrepickup();
+  updateEta();
   $('#trip-dialog').showModal();
+}
+
+// ---------- Recolección anticipada ----------
+function syncPrepickup() {
+  const on = $('#trip-form').has_prepickup.checked;
+  $('#prepickup-box').classList.toggle('hidden', !on);
+  $('#trip-form').prepickup_at.required = on;
+  $('#start-help').textContent = on
+    ? 'De donde sale la unidad (ya cargada) rumbo al destino.'
+    : 'Donde se carga y de donde sale la unidad rumbo al destino.';
+}
+$('#trip-form [name=has_prepickup]').addEventListener('change', syncPrepickup);
+
+// ---------- Ruta y ETA ----------
+// El tiempo de manejo se calcula con Google Maps (Routes API) si hay llave; si
+// no, con una estimación en línea recta. El personal lo puede ajustar a mano.
+let routeState = { km: null, source: null };
+let routeTimer;
+let routeRequest = 0;
+
+function routeMinutes() {
+  const form = $('#trip-form');
+  if (form.route_h.value === '' && form.route_m.value === '') return null;
+  return Number(form.route_h.value || 0) * 60 + Number(form.route_m.value || 0);
+}
+function setRouteMinutes(minutes) {
+  const form = $('#trip-form');
+  form.route_h.value = minutes == null ? '' : Math.floor(minutes / 60);
+  form.route_m.value = minutes == null ? '' : Math.round(minutes % 60);
+}
+function routeInfoText() {
+  const source = { google: 'Calculado con Google Maps', estimado: 'Estimación aproximada (sin Google Maps)', manual: 'Capturado a mano' }[routeState.source] || '';
+  return [routeState.km != null ? `${fmtNum(routeState.km)} km` : '', source].filter(Boolean).join(' · ') + '. Ajústalo si harás paradas o la unidad va más lenta.';
+}
+
+function updateEta() {
+  const form = $('#trip-form');
+  const eta = addMinutesLocal(form.pickup_at.value, routeMinutes());
+  $('#eta-value').textContent = eta ? fmtDate(eta, true) : '—';
+  const late = eta && form.delivery_at.value && eta > form.delivery_at.value;
+  $('#eta-warn').textContent = late ? '⚠ Llega después de la entrega pactada.' : '';
+  $('#eta-warn').className = `small ${late ? 'eta-warn' : ''}`;
+}
+['pickup_at', 'delivery_at', 'route_h', 'route_m'].forEach((n) => $(`#trip-form [name=${n}]`).addEventListener('input', () => {
+  if (n.startsWith('route_')) {
+    routeState.source = 'manual';
+    $('#route-info').textContent = routeInfoText();
+  }
+  updateEta();
+}));
+
+function scheduleRoute() {
+  clearTimeout(routeTimer);
+  routeTimer = setTimeout(computeRoute, 400);
+}
+$('#route-calc').onclick = computeRoute;
+
+const routeWaypoint = (p) => (p.lat != null ? { location: { latLng: { latitude: p.lat, longitude: p.lng } } } : { address: p.address });
+async function googleRoute(from, to) {
+  const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': cfg.googleMapsApiKey, 'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration' },
+    body: JSON.stringify({ origin: routeWaypoint(from), destination: routeWaypoint(to), travelMode: 'DRIVE', languageCode: 'es-MX', regionCode: 'MX' }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok || !out.routes?.length) throw new Error(out.error?.message || 'Sin ruta');
+  return { km: Math.round(out.routes[0].distanceMeters / 100) / 10, minutes: Math.round(parseInt(out.routes[0].duration, 10) / 60) };
+}
+
+async function computeRoute() {
+  const from = pickupPicker.getValue();
+  const to = destPicker.getValue();
+  const info = $('#route-info');
+  if (!from.address || !to.address) {
+    info.textContent = 'Elige el punto de inicio y el destino para calcular la ruta.';
+    return;
+  }
+  const request = ++routeRequest;
+  let route = null;
+  if (cfg.googleMapsApiKey) {
+    info.textContent = 'Calculando ruta con Google Maps…';
+    try {
+      route = { ...(await googleRoute(from, to)), source: 'google' };
+    } catch {
+      route = null;
+    }
+  }
+  if (!route) {
+    const rough = roughRoute(from, to);
+    route = rough && { ...rough, source: 'estimado' };
+  }
+  if (request !== routeRequest) return;
+  if (!route) {
+    info.textContent = 'No se pudo calcular la ruta. Marca los puntos en el mapa o captura el tiempo a mano.';
+    return;
+  }
+  routeState = { km: route.km, source: route.source };
+  setRouteMinutes(route.minutes);
+  info.textContent = routeInfoText();
+  updateEta();
 }
 $('#new-trip').onclick = () => openTripForm(null);
 
@@ -166,7 +283,19 @@ $('#trip-form').addEventListener('submit', async (e) => {
   const form = e.target;
   const pickup = pickupPicker.getValue();
   const dest = destPicker.getValue();
+  const prepickup = prepickupPicker.getValue();
+  const minutes = routeMinutes();
   const body = {
+    name: form.elements.name.value,
+    notify_emails: form.notify_emails.value,
+    has_prepickup: form.has_prepickup.checked,
+    prepickup_address: prepickup.address,
+    prepickup_lat: prepickup.lat,
+    prepickup_lng: prepickup.lng,
+    prepickup_at: form.prepickup_at.value,
+    route_minutes: minutes,
+    route_km: routeState.km,
+    route_source: minutes != null ? routeState.source || 'manual' : null,
     driver_id: form.driver_id.value,
     vehicle_id: form.vehicle_id.value,
     client_id: form.client_id.value,
@@ -237,14 +366,36 @@ async function openDetail(id) {
 
   $('#detail-body').innerHTML = `
     <div class="card-head">
-      <div><h2>Viaje #${t.id}</h2>${statusBadge(t.status)}</div>
+      <div><h2>Viaje #${t.id}${t.name ? ` · ${esc(t.name)}` : ''}</h2>${statusBadge(t.status)}</div>
       <button data-close-detail>✕</button>
+    </div>
+    <div class="eta-box" style="margin-top:6px">
+      <div class="eta-grid">
+        <div>
+          <div class="muted small">Llegada estimada${t.eta_live_at ? ' (con la hora real de salida)' : ''}</div>
+          <b style="font-size:1.2rem">${t.eta ? esc(fmtDate(t.eta, true)) : t.arrived_at ? `Llegó ${esc(fmtDate(t.arrived_at, true))}` : '—'}</b>
+          <div class="muted small">${[t.route_km != null ? `${fmtNum(t.route_km)} km` : '', fmtDuration(t.route_minutes)].filter(Boolean).join(' · ')}${
+            t.eta_at && t.delivery_at && t.eta_at > t.delivery_at ? ' · <span class="eta-warn">⚠ después de la entrega pactada</span>' : ''
+          }</div>
+        </div>
+        <div>
+          <div class="muted small">Enlace de seguimiento para el cliente</div>
+          <div class="row" style="margin-top:4px">
+            <button class="btn-sm" data-copy-track>📋 Copiar</button>
+            <a class="btn btn-sm" target="_blank" rel="noopener" data-wa-track>WhatsApp</a>
+            <a class="btn btn-sm" target="_blank" rel="noopener" data-open-track>Abrir</a>
+          </div>
+          ${t.notify_emails ? `<div class="muted small" style="margin-top:4px">✉️ Avisos a: ${esc(t.notify_emails)}</div>` : ''}
+        </div>
+      </div>
     </div>
     <div class="grid-2">
       <div>
-        <div class="stop"><div class="dot">📍</div><div class="body"><div class="muted small">Recolección · ${esc(fmtDate(t.pickup_at, true))}</div><div class="addr">${esc(t.pickup_address)}</div></div>
+        ${t.prepickup_address ? `<div class="stop pre"><div class="dot">📦</div><div class="body"><div class="muted small">Recolección anticipada · ${esc(fmtDate(t.prepickup_at, true))}</div><div class="addr">${esc(t.prepickup_address)}</div></div>
+          <a class="btn btn-soft btn-sm" target="_blank" rel="noopener" href="${esc(mapsUrl(t.prepickup_address, t.prepickup_lat, t.prepickup_lng))}">Mapa</a></div>` : ''}
+        <div class="stop"><div class="dot">📍</div><div class="body"><div class="muted small">Inicio · ${esc(fmtDate(t.pickup_at, true))}</div><div class="addr">${esc(t.pickup_address)}</div></div>
           <a class="btn btn-soft btn-sm" target="_blank" rel="noopener" href="${esc(mapsUrl(t.pickup_address, t.pickup_lat, t.pickup_lng))}">Mapa</a></div>
-        <div class="stop"><div class="dot">🏁</div><div class="body"><div class="muted small">Destino${t.delivery_at ? ` · entrega ${esc(fmtDate(t.delivery_at, true))}` : ''}</div><div class="addr">${esc(t.dest_address)}</div></div>
+        <div class="stop"><div class="dot">🏁</div><div class="body"><div class="muted small">Destino${t.delivery_at ? ` · entrega pactada ${esc(fmtDate(t.delivery_at, true))}` : ''}</div><div class="addr">${esc(t.dest_address)}</div></div>
           <a class="btn btn-soft btn-sm" target="_blank" rel="noopener" href="${esc(mapsUrl(t.dest_address, t.dest_lat, t.dest_lng))}">Mapa</a></div>
         <dl class="kv" style="margin-top:8px">
           <dt>Chofer</dt><dd>${esc(t.driver_name || '—')}${t.driver_phone ? ` · <a href="tel:${esc(t.driver_phone)}">${esc(t.driver_phone)}</a>` : ''}</dd>
@@ -323,6 +474,18 @@ async function openDetail(id) {
   const dlg = $('#detail-dialog');
   const body = $('#detail-body');
   $$('[data-close-detail]', body).forEach((b) => (b.onclick = () => dlg.close()));
+  // Enlace público de seguimiento (el cliente no necesita cuenta).
+  const trackLink = `${location.origin}/seguimiento.html?t=${t.track_token}`;
+  body.querySelector('[data-open-track]').href = trackLink;
+  body.querySelector('[data-wa-track]').href = `https://wa.me/?text=${encodeURIComponent(`Sigue tu envío${t.name ? ` "${t.name}"` : ''} con ${cfg.companyName}: ${trackLink}`)}`;
+  body.querySelector('[data-copy-track]').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(trackLink);
+      toast('Enlace copiado');
+    } catch {
+      prompt('Copia el enlace:', trackLink);
+    }
+  };
   body.querySelector('[data-edit]')?.addEventListener('click', () => {
     dlg.close();
     openTripForm(t);
@@ -424,6 +587,8 @@ function syncRoleFields() {
   const form = $('#user-form');
   const role = form.role.value;
   $('#user-company-row').classList.toggle('hidden', role !== 'client');
+  // Los choferes reciben sus propios avisos de viajes asignados, no el estatus.
+  $('#user-notify-row').classList.toggle('hidden', role === 'driver');
   $('#user-role-help').textContent = ROLE_HELP[role] || '';
 }
 $('#user-form [name=role]').addEventListener('change', syncRoleFields);
@@ -451,6 +616,7 @@ function openUserForm(user) {
   $('#user-welcome-row').classList.toggle('hidden', Boolean(user));
   $('#user-active-row').classList.toggle('hidden', !user || self);
   form.active.checked = user ? Boolean(user.active) : true;
+  form.notify_email.checked = user ? Boolean(user.notify_email) : true;
   syncRoleFields();
   $('#user-dialog').showModal();
 }
@@ -470,6 +636,7 @@ $('#user-form').addEventListener('submit', async (e) => {
     phone: form.phone.value,
     company: form.company.value,
     password: form.password.value || undefined,
+    notify_email: form.notify_email.checked,
   };
   if (!form.role.disabled) body.role = form.role.value;
   try {

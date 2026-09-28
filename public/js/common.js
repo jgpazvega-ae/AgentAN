@@ -80,6 +80,39 @@ function fmtNum(n, digits = 0) {
   return Number(n).toLocaleString('es-MX', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+// 330 → "5 h 30 min"
+function fmtDuration(minutes) {
+  if (minutes == null) return '';
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`;
+}
+
+// "2026-10-01T08:30" + 90 → "2026-10-01T10:00" (hora local, igual que el servidor).
+function addMinutesLocal(local, minutes) {
+  if (!local || minutes == null) return null;
+  const [date, time = '00:00'] = String(local).split('T');
+  const [y, m, d] = date.split('-').map(Number);
+  const [hh, mm] = time.split(':').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d, hh, mm) + Math.round(minutes) * 60000);
+  return t.toISOString().slice(0, 16);
+}
+
+// Estimación sin Google Maps (misma fórmula que el servidor): línea recta × 1.3 a 65 km/h.
+function roughRoute(a, b) {
+  if ([a?.lat, a?.lng, b?.lat, b?.lng].some((v) => v == null)) return null;
+  const rad = (x) => (x * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  const km = Math.round(2 * 6371 * Math.asin(Math.sqrt(h)) * 1.3);
+  return { km, minutes: Math.max(10, Math.round((km / 65) * 60)) };
+}
+
+// Texto del ETA vigente de un viaje ("en ruta" si ya salió).
+function etaLabel(t) {
+  if (!t.eta) return '';
+  return `${t.eta_live_at ? 'Llega aprox.' : 'ETA'} ${fmtDate(t.eta)}`;
+}
+
 function statusBadge(status) {
   return `<span class="badge st-${esc(status)}">${esc(STATUS[status]?.label || status)}</span>`;
 }

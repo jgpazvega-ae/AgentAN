@@ -88,6 +88,47 @@ Cada recibo tiene folio (`P-00001` para pagos semanales y `B-00001` para bonos),
 
 > Los recibos son comprobantes internos. Para el tratamiento fiscal de los pagos a choferes (facturas, retenciones, IMSS) consulta a tu contador.
 
+## Alta del viaje, ETA y recolección anticipada
+
+Al crear un viaje se captura:
+
+- **Nombre del viaje** (por ejemplo, “Tarimas Abarrotes → León”), chofer, vehículo y cliente.
+- **Punto de inicio** con su **fecha y hora de inicio**, y el **destino final**. Se buscan en el mapa o se escriben.
+- **Entrega pactada** con el cliente (opcional).
+- **Tiempo estimado de llegada (ETA)**:
+  - El panel calcula el tiempo de manejo del inicio al destino con Google Maps (Routes API).
+  - Sin llave de Google hace una estimación aproximada: distancia en línea recta × 1.3 a 65 km/h.
+  - El tiempo se puede ajustar a mano (paradas, unidad más lenta).
+  - **ETA = inicio + tiempo de manejo**. Si queda después de la entrega pactada, se muestra un aviso.
+  - Cuando el chofer sale rumbo al destino, el ETA se recalcula con la **hora real de salida**.
+- **Recolección anticipada** (opcional): un mini flete dentro del flete principal para cargar la unidad antes.
+  - Se indica el lugar, la fecha y la hora, que deben ser antes del inicio del viaje.
+  - El chofer ve las paradas en orden: 1) recolección anticipada, 2) salida desde el punto de inicio, 3) destino.
+- **Correos para avisos de estatus** (opcional, hasta 5): contactos del cliente que no tienen cuenta.
+
+### Correos de estatus
+
+Cada cambio de estatus manda un correo. Quien hizo el cambio no recibe su propio aviso.
+
+| Estatus | Personal de AN | Cliente y correos adicionales |
+|---|---|---|
+| Programado (al crear el viaje) | ✔ | ✔ |
+| Cambios en el envío (lugares, horarios o ETA) | — | ✔ |
+| Inició el viaje (va por la carga) | ✔ con odómetro y combustible | ✔ |
+| Terminó de cargar | ✔ | ✔ con la hora de salida |
+| Salió rumbo al destino | ✔ | ✔ con el ETA recalculado |
+| Llegó al punto de entrega | ✔ | ✔ |
+| Entregado | ✔ | ✔ con quién recibió |
+| Regresó a base (viaje cerrado) | ✔ con km, litros y km/L | — |
+| Cancelado | ✔ | ✔ |
+
+- **Qué incluye el correo:** una barra de avance, los datos del viaje (paradas, horarios, ETA, chofer y unidad) y un botón.
+  - Para el personal, el botón abre el panel.
+  - Para el cliente, abre el **enlace de seguimiento** (`/seguimiento.html?t=…`), que no requiere cuenta. Ahí ve el estatus, el ETA y las fotos de carga, llegada y entrega. Nunca ve odómetro, combustible ni notas internas.
+- **Compartir el enlace:** en el detalle del viaje hay botones para copiarlo, mandarlo por WhatsApp o abrirlo.
+- **Dejar de recibir correos:** cada miembro del personal o cliente puede quedar sin correos de estatus en *Usuarios → editar → “Recibir por correo el estatus de cada viaje”*.
+- **Notas del chofer:** también llegan por correo al personal.
+
 ## Flujo del viaje
 
 ```
@@ -163,7 +204,7 @@ Copia `.env.example` como `.env` y completa:
 ### Google Maps
 
 1. Entra a [Google Cloud Console](https://console.cloud.google.com/), crea un proyecto y activa la facturación (Google da crédito gratis mensual; para una flota pequeña normalmente no se paga nada).
-2. Habilita: **Maps JavaScript API**, **Places API (New)**, **Geocoding API** y **Maps Embed API**.
+2. Habilita: **Maps JavaScript API**, **Places API (New)**, **Geocoding API**, **Maps Embed API** y **Routes API** (distancia y tiempo de manejo para el cotizador y el ETA).
 3. Crea una **clave de API** y restríngela a tu dominio (*Restricciones de aplicación → Sitios web → `https://viajes.tuempresa.com/*`*).
 4. Ponla en `GOOGLE_MAPS_API_KEY`.
 

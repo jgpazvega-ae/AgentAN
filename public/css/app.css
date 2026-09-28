@@ -212,3 +212,17 @@ dialog form, dialog .dialog-body { padding: 18px; }
 .role-admin { background: var(--primary-soft); color: var(--primary-text); }
 .role-driver { background: var(--ok-soft); color: var(--ok); }
 .role-client { background: var(--warn-soft); color: var(--warn); }
+
+/* ---------- Formulario de viaje: recolección anticipada y ETA ---------- */
+.prepickup-toggle { margin-top: 14px; }
+.prepickup-box { border: 1px dashed var(--border, #d1d5db); border-radius: 12px; padding: 4px 14px 10px; margin-top: 8px; }
+.prepickup-box h3 { margin-top: 10px; }
+.eta-box { background: var(--primary-soft); border-radius: 12px; padding: 4px 14px 12px; margin-top: 14px; }
+.eta-box h3 { margin-top: 10px; }
+.eta-grid { display: grid; gap: 12px; grid-template-columns: 1fr; align-items: center; }
+@media (min-width: 720px) { .eta-grid { grid-template-columns: 2fr 1fr; } }
+.eta-result { display: flex; flex-direction: column; gap: 2px; }
+.eta-result b { font-size: 1.25rem; color: var(--primary-text); }
+.eta-warn { color: var(--warn); }
+.eta-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-text); font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+.stop.pre .dot { background: var(--warn-soft); }

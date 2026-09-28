@@ -9,7 +9,7 @@ let fuelTrip = null;
 let noteTrip = null;
 
 const ACTIONS = {
-  asignado: { label: '▶ Iniciar viaje', cls: 'btn-primary', kind: 'start', help: 'Antes de arrancar hacia la recolección, toma la foto del odómetro y del nivel de combustible.' },
+  asignado: { label: '▶ Iniciar viaje', cls: 'btn-primary', kind: 'start', help: 'Antes de arrancar hacia donde vas a cargar, toma la foto del odómetro y del nivel de combustible.' },
   en_recoleccion: { label: '📦 Terminé de cargar', cls: 'btn-primary', kind: 'loaded', help: 'Presiona cuando la mercancía esté cargada. Si sales hasta otro día, el viaje quedará en espera.' },
   cargado: { label: '🚚 Salir rumbo al destino', cls: 'btn-primary', kind: 'depart', help: 'Justo antes de arrancar hacia el destino, toma la foto de la carga.' },
   en_ruta: { label: '📍 Llegué al punto de entrega', cls: 'btn-primary', kind: 'arrive', help: 'Al llegar al destino, toma una foto del lugar.' },
@@ -109,6 +109,7 @@ function tripCard(t) {
     ['Cliente', t.client],
     ['Carga', t.cargo],
     ['Vehículo', t.vehicle_name && `${t.vehicle_name}${t.vehicle_plate ? ` · ${t.vehicle_plate}` : ''}`],
+    ['Ruta', [t.route_km != null ? `${fmtNum(t.route_km)} km` : '', fmtDuration(t.route_minutes)].filter(Boolean).join(' · ')],
     ['Notas', t.notes],
   ].filter(([, v]) => v);
 
@@ -125,14 +126,26 @@ function tripCard(t) {
   return `
   <article class="card" id="viaje-${t.id}">
     <div class="card-head">
-      <div><h2>Viaje #${t.id}</h2>${statusBadge(t.status)}</div>
+      <div><h2>Viaje #${t.id}${t.name ? ` · ${esc(t.name)}` : ''}</h2>${statusBadge(t.status)}</div>
       <span class="muted small">${t.odo_start != null ? `Odómetro inicial: ${fmtNum(t.odo_start)} km` : ''}</span>
     </div>
     ${t.status !== 'cancelado' ? `<div class="steps">${[1, 2, 3, 4, 5, 6].map((i) => `<span class="${step >= i ? 'done' : ''}"></span>`).join('')}</div>` : ''}
+    ${
+      t.prepickup_address
+        ? `<div class="stop pre">
+      <div class="dot">📦</div>
+      <div class="body">
+        <div class="muted small">1. Recolección anticipada · ${esc(fmtDate(t.prepickup_at))}</div>
+        <div class="addr">${esc(t.prepickup_address)}</div>
+      </div>
+      <a class="btn btn-soft btn-sm" target="_blank" rel="noopener" href="${esc(mapsUrl(t.prepickup_address, t.prepickup_lat, t.prepickup_lng))}">Navegar</a>
+    </div>`
+        : ''
+    }
     <div class="stop">
       <div class="dot">📍</div>
       <div class="body">
-        <div class="muted small">Recolección · ${esc(fmtDate(t.pickup_at))}</div>
+        <div class="muted small">${t.prepickup_address ? '2. Salida (inicio del viaje)' : 'Inicio y carga'} · ${esc(fmtDate(t.pickup_at))}</div>
         <div class="addr">${esc(t.pickup_address)}</div>
       </div>
       <a class="btn btn-soft btn-sm" target="_blank" rel="noopener" href="${esc(mapsUrl(t.pickup_address, t.pickup_lat, t.pickup_lng))}">Navegar</a>
@@ -140,7 +153,7 @@ function tripCard(t) {
     <div class="stop">
       <div class="dot">🏁</div>
       <div class="body">
-        <div class="muted small">Destino${t.delivery_at ? ` · entrega ${esc(fmtDate(t.delivery_at))}` : ''}</div>
+        <div class="muted small">Destino${t.delivery_at ? ` · entrega pactada ${esc(fmtDate(t.delivery_at))}` : ''}${t.eta ? ` · <span class="eta-chip">${esc(etaLabel(t))}</span>` : ''}</div>
         <div class="addr">${esc(t.dest_address)}</div>
       </div>
       <a class="btn btn-soft btn-sm" target="_blank" rel="noopener" href="${esc(mapsUrl(t.dest_address, t.dest_lat, t.dest_lng))}">Navegar</a>

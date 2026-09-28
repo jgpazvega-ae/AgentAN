@@ -42,6 +42,7 @@ function client() {
   return call;
 }
 const cookieOf = async (c) => c.cookie();
+const base_url = () => base;
 
 // JPEG mínimo (1x1) para simular la foto del odómetro.
 const JPEG = Buffer.from(
@@ -509,6 +510,156 @@ test('perfiles: superadministrador, personal de AN, choferes y clientes', async 
   assert.equal(r.status, 403);
   r = await cli('GET', '/payments');
   assert.equal(r.data.length, 0);
+});
+
+test('ETA, recolección anticipada, correos de estatus y seguimiento público', async () => {
+  const { outbox } = require('../src/notify');
+  const tick = () => new Promise((r) => setTimeout(r, 30));
+  const mails = (to, text) => outbox.filter((m) => m.to === to && (!text || m.subject.includes(text)));
+
+  const boss = client();
+  await boss('POST', '/login', { email: 'dueno@example.com', password: 'secreto123' });
+  // Personal que no quiere correos de estatus.
+  let r = await boss('POST', '/users', { name: 'Beto Oficina', email: 'beto@example.com', password: 'personal123', role: 'admin', notify_email: false });
+  assert.equal(r.status, 201);
+  r = await boss('POST', '/users', { name: 'Diana Compras', email: 'diana@example.com', password: 'cliente123', role: 'client', company: 'Muebles SA' });
+  const clientId = r.data.id;
+  const juan = (await boss('GET', '/users')).data.find((u) => u.email === 'juan@example.com');
+
+  const base = {
+    name: 'Muebles a León',
+    driver_id: juan.id,
+    client_id: clientId,
+    pickup_address: 'Bodega AN, Querétaro',
+    pickup_lat: 20.5888,
+    pickup_lng: -100.3899,
+    pickup_at: '2026-10-05T08:00',
+    dest_address: 'Tienda Centro, León',
+    dest_lat: 21.1221,
+    dest_lng: -101.6827,
+    delivery_at: '2026-10-05T11:00',
+  };
+  r = await boss('POST', '/trips', { ...base, notify_emails: 'compras@cliente, otro@cliente.mx' });
+  assert.equal(r.status, 400, 'correo adicional inválido');
+  r = await boss('POST', '/trips', { ...base, has_prepickup: true, prepickup_address: 'Proveedor, Celaya', prepickup_at: '2026-10-05T09:00' });
+  assert.equal(r.status, 400, 'la recolección anticipada debe ser antes del inicio');
+  r = await boss('POST', '/trips', { ...base, has_prepickup: true, prepickup_at: '2026-10-04T16:00' });
+  assert.equal(r.status, 400, 'la recolección anticipada pide lugar');
+
+  // Sin tiempo capturado: se estima con la distancia (sin Google Maps).
+  r = await boss('POST', '/trips', base);
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.route_source, 'estimado');
+  assert.ok(r.data.route_minutes > 60 && r.data.route_km > 100, `estimación razonable: ${r.data.route_km} km, ${r.data.route_minutes} min`);
+  assert.ok(r.data.eta_at > '2026-10-05T09:00');
+
+  const before = outbox.length;
+  r = await boss('POST', '/trips', {
+    ...base,
+    has_prepickup: true,
+    prepickup_address: 'Proveedor, Celaya',
+    prepickup_at: '2026-10-04T16:00',
+    route_minutes: 270,
+    route_km: 180,
+    route_source: 'google',
+    notify_emails: 'Compras@Cliente.mx; almacen@cliente.mx',
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const trip = r.data;
+  assert.equal(trip.name, 'Muebles a León');
+  assert.equal(trip.prepickup_at, '2026-10-04T16:00');
+  assert.equal(trip.notify_emails, 'compras@cliente.mx, almacen@cliente.mx');
+  assert.equal(trip.eta_at, '2026-10-05T12:30', 'inicio 08:00 + 4 h 30 min');
+  assert.equal(trip.eta, trip.eta_at);
+  assert.match(trip.track_token, /^[0-9a-f]{32}$/);
+
+  // Aviso "programado": cliente y correos adicionales (con enlace de seguimiento); personal con correos activos.
+  await tick();
+  const fresh = outbox.slice(before);
+  for (const to of ['diana@example.com', 'compras@cliente.mx', 'almacen@cliente.mx']) {
+    const m = fresh.find((x) => x.to === to);
+    assert.ok(m, `correo a ${to}`);
+    assert.match(m.subject, /está programado/);
+    assert.ok(m.text.includes(`/seguimiento.html?t=${trip.track_token}`));
+    assert.ok(m.text.includes('Recolección anticipada: Proveedor, Celaya'));
+    assert.ok(m.text.includes('Llegada estimada (ETA): lunes 5 oct 2026, 12:30 h'));
+  }
+  assert.ok(fresh.some((m) => m.to === 'ana@example.com' && /programado/.test(m.subject)), 'personal de AN');
+  assert.ok(!fresh.some((m) => m.to === 'dueno@example.com'), 'quien creó el viaje no recibe su propio aviso');
+  assert.ok(!fresh.some((m) => m.to === 'beto@example.com'), 'personal sin correos de estatus');
+
+  // El chofer avanza: cada paso manda correo.
+  const driver = client();
+  await driver('POST', '/login', { email: 'juan@example.com', password: 'chofer123' });
+  r = await driver('POST', `/trips/${trip.id}/start`, odoFuelForm(102000, 0.75));
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  await tick();
+  assert.match(mails('compras@cliente.mx').at(-1).subject, /va por la carga/);
+  assert.ok(mails('compras@cliente.mx').at(-1).text.includes('recolección anticipada en Proveedor, Celaya'));
+  assert.match(mails('dueno@example.com').at(-1).subject, /Juan Chofer inició el viaje/);
+  assert.ok(mails('dueno@example.com').at(-1).text.includes('Combustible: 3/4'), 'datos internos solo para el personal');
+  assert.ok(!mails('compras@cliente.mx').at(-1).text.includes('Odómetro'), 'el cliente no ve el odómetro');
+
+  await driver('POST', `/trips/${trip.id}/loaded`, {});
+  await tick();
+  assert.match(mails('diana@example.com').at(-1).subject, /carga lista/);
+  assert.ok(mails('diana@example.com').at(-1).text.includes('lunes 5 oct 2026, 08:00 h'), 'avisa cuándo sale al destino');
+
+  r = await driver('POST', `/trips/${trip.id}/depart`, photoForm());
+  assert.equal(r.data.status, 'en_ruta');
+  assert.ok(r.data.departed_at);
+  assert.equal(r.data.eta_live_at, require('../src/eta').addMinutes(r.data.departed_at, 270), 'ETA con la hora real de salida');
+  assert.equal(r.data.eta, r.data.eta_live_at);
+  await tick();
+  const enRuta = mails('almacen@cliente.mx').at(-1);
+  assert.match(enRuta.subject, /va en camino/);
+  assert.ok(enRuta.text.includes('Llegada estimada (en ruta)'));
+
+  // Seguimiento público: sin sesión, sin datos internos.
+  let res = await fetch(`${base_url()}/track/${trip.track_token}`);
+  assert.equal(res.status, 200);
+  const tracked = await res.json();
+  assert.equal(tracked.name, 'Muebles a León');
+  assert.equal(tracked.status, 'en_ruta');
+  assert.equal(tracked.eta, r.data.eta_live_at);
+  assert.equal(tracked.odo_start, undefined);
+  assert.equal(tracked.fuel_start, undefined);
+  assert.equal(tracked.notify_emails, undefined);
+  assert.equal(tracked.photos[0].kind, 'carga');
+  res = await fetch(`${base_url()}/track/${trip.track_token}/photos/${tracked.photos[0].file}`);
+  assert.equal(res.status, 200, 'foto de la carga');
+  res = await fetch(`${base_url()}/track/${trip.track_token}/photos/${r.data.odo_start_photo}`);
+  assert.equal(res.status, 404, 'la foto del odómetro no se publica');
+  res = await fetch(`${base_url()}/track/${'0'.repeat(32)}`);
+  assert.equal(res.status, 404);
+  res = await fetch(`${base_url()}/track/../trips`);
+  assert.notEqual(res.status, 200);
+
+  // Cambio de datos que le importan al cliente → aviso "cambios en tu envío".
+  const full = (await boss('GET', `/trips/${trip.id}`)).data;
+  r = await boss('PUT', `/trips/${trip.id}`, {
+    ...base,
+    has_prepickup: true,
+    prepickup_address: full.prepickup_address,
+    prepickup_at: full.prepickup_at,
+    notify_emails: full.notify_emails,
+    route_minutes: 300,
+    route_km: 180,
+    route_source: 'manual',
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.route_minutes, 300);
+  await tick();
+  assert.match(mails('compras@cliente.mx').at(-1).subject, /Cambios en tu envío/);
+
+  // El cliente puede apagar sus correos.
+  r = await boss('PUT', `/users/${clientId}`, { notify_email: false });
+  assert.equal(r.status, 200);
+  const count = mails('diana@example.com').length;
+  await driver('POST', `/trips/${trip.id}/arrive`, photoForm());
+  await tick();
+  assert.equal(mails('diana@example.com').length, count, 'sin correos si los apagó');
+  assert.match(mails('compras@cliente.mx').at(-1).subject, /llegó al punto de entrega/);
 });
 
 test('migración: una base de datos anterior conserva sus datos y el primer admin pasa a superadministrador', () => {
