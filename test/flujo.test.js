@@ -294,6 +294,11 @@ test('tarifas del cotizador y versión para GitHub Pages', async () => {
   assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 171 }).total, 4900);
   assert.equal(estimate(DEFAULT_PRICING, { vehicle: 'van', km: 335 }).total, 6800);
   assert.equal(estimate(DEFAULT_PRICING, { vehicle: 'grande', km: 690 }), null, 'unidad grande: cotización especial');
+  // Precio de lista (tarjeta): el descuento de 4% por efectivo/transferencia cubre la comisión.
+  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 171 }).list, 5110);
+  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 20 }).list, 1570);
+  const { listPrice } = require('../src/pricing');
+  assert.equal(listPrice({ ...DEFAULT_PRICING, cash_discount: 0 }, 4900), 4900, 'sin descuento, lista = precio');
 
   const admin = client();
   await admin('POST', '/login', { email: 'dueno@example.com', password: 'secreto123' });
@@ -343,13 +348,19 @@ test('impuestos del cotizador por tipo de cliente', async () => {
   assert.deepEqual(r.data.taxes.rules.fisica, rules.fisica, 'las reglas se pueden ajustar');
   r = await admin('PUT', '/pricing', { included_km: 40, vehicles: {}, taxes: { iva: 99, ret_iva: 4, ret_isr: 1.25, rules } });
   assert.equal(r.status, 400);
+  r = await admin('PUT', '/pricing', { included_km: 40, vehicles: {}, cash_discount: 3.5 });
+  assert.equal(r.data.cash_discount, 3.5);
+  assert.equal(r.data.taxes.rules.fisica.ret_iva, true, 'guardar el descuento no borra los impuestos');
+  r = await admin('PUT', '/pricing', { included_km: 40, vehicles: {}, cash_discount: 30 });
+  assert.equal(r.status, 400);
   assert.deepEqual((await admin('GET', '/pricing')).data.payment_methods.length, 3);
 
   const visitor = client();
-  r = await visitor('POST', '/quotes', { name: 'Empresa SA', company: 'Empresa SA de CV', phone: '4421234567', client_type: 'moral', payment_method: 'Transferencia', estimate: 4900, total: 5426.75, km: 171 });
+  r = await visitor('POST', '/quotes', { name: 'Empresa SA', company: 'Empresa SA de CV', phone: '4421234567', client_type: 'moral', payment_method: 'Transferencia', estimate: 4900, list_price: 5110, total: 5426.75, km: 171 });
   assert.equal(r.status, 201);
   const q = (await admin('GET', '/quotes')).data[0];
   assert.equal(q.client_type, 'moral');
   assert.equal(q.total, 5426.75);
   assert.equal(q.payment_method, 'Transferencia');
+  assert.equal(q.list_price, 5110);
 });

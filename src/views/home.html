@@ -110,6 +110,8 @@
               <button type="button" data-client="fisica" class="active">Persona física</button>
               <button type="button" data-client="moral">Empresa (persona moral)</button>
             </div>
+            <label>Forma de pago</label>
+            <div class="seg" role="tablist" id="pay-tabs"></div>
             <div class="estimate" id="estimate" aria-live="polite"></div>
             <div class="pay-methods" id="pay-methods"></div>
             <details class="small-print">
@@ -133,7 +135,6 @@
               <label>Fecha deseada<input name="service_date" type="date"></label>
               <label><span id="cargo-label">Carga</span><input name="cargo" maxlength="500" id="cargo-input" placeholder="Ej. 10 tarimas, 3 toneladas"></label>
             </div>
-            <label>Forma de pago<select name="payment_method" id="pay-select"></select></label>
             <label>Comentarios<textarea name="message" maxlength="2000" rows="3"></textarea></label>
             <label class="hp" aria-hidden="true">No llenar<input name="website" tabindex="-1" autocomplete="off"></label>
             <div id="quote-msg" role="status"></div>

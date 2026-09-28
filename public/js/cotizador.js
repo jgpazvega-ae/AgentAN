@@ -31,8 +31,24 @@
     render();
   });
   const methods = P.payment_methods || [];
-  $('pay-methods').innerHTML = methods.length ? `<b>Aceptamos:</b> ${methods.map(esc).join(' · ')}` : '';
-  $('pay-select').innerHTML = '<option value="">— Elige —</option>' + methods.map((m) => `<option>${esc(m)}</option>`).join('');
+  const cashMethods = P.cash_methods || [];
+  const discount = P.cash_discount || 0;
+  let payMethod = methods.find((m) => cashMethods.includes(m)) || methods[0] || '';
+  const shortName = (m) => (m.startsWith('Tarjeta') ? 'Tarjeta' : m);
+  $('pay-tabs').innerHTML = methods.map((m) => `<button type="button" data-pay="${esc(m)}">${esc(shortName(m))}</button>`).join('');
+  $('pay-tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pay]');
+    if (!b) return;
+    payMethod = b.dataset.pay;
+    render();
+  });
+  $('pay-methods').innerHTML = methods.length
+    ? `<b>Aceptamos:</b> ${methods.map(esc).join(' · ')}.${
+        discount ? ` Precio de lista válido para cualquier forma de pago; pagando en ${cashMethods.map((m) => m.toLowerCase()).join(' o ')} obtienes un descuento.` : ''
+      }`
+    : '';
+  // Precio de lista: el descuento por efectivo/transferencia cubre la comisión de la terminal.
+  const listPrice = (cash) => (discount ? Math.ceil(cash / (1 - discount / 100) / 10) * 10 : cash);
 
   // ---------- Tipo de servicio y unidad ----------
   $('svc-tabs').innerHTML = P.services
@@ -91,13 +107,18 @@
   function render() {
     [...$('svc-tabs').children].forEach((b) => b.classList.toggle('active', b.dataset.svc === service.id));
     [...$('client-tabs').children].forEach((b) => b.classList.toggle('active', b.dataset.client === clientType));
+    [...$('pay-tabs').children].forEach((b) => b.classList.toggle('active', b.dataset.pay === payMethod));
     const companyInput = document.querySelector('#quote-form [name=company]');
     companyInput.previousSibling.textContent = clientType === 'moral' ? 'Razón social*' : 'Empresa';
     $('vehicles').innerHTML = service.vehicles
       .map(
         (v) => `<button type="button" data-veh="${esc(v.id)}" class="${v.id === vehicle.id ? 'active' : ''}">
           <b>${esc(v.label)}</b><span>${esc(v.note || '')}</span>
-          <span class="rate">${v.special ? 'Cotización especial' : `Desde ${money(v.base)}`}</span></button>`
+          <span class="rate">${
+            v.special
+              ? 'Cotización especial'
+              : `Desde ${money(listPrice(v.base))}${discount ? `<small>${money(v.base)} en efectivo o transferencia</small>` : ''}`
+          }</span></button>`
       )
       .join('');
     const isExec = service.id === 'ejecutivo';
@@ -106,8 +127,11 @@
 
     const km = distance();
     const est = estimate(km);
-    const taxes = est ? taxBreakdown(est.total) : null;
-    current = { service: service.label, vehicle: vehicle.label, km, estimate: est ? est.total : null, client_type: clientType, total: taxes ? taxes.total : null };
+    const list = est ? listPrice(est.total) : null;
+    const withDiscount = cashMethods.includes(payMethod);
+    const subtotal = est ? (withDiscount ? est.total : list) : null;
+    const taxes = est ? taxBreakdown(subtotal) : null;
+    current = { service: service.label, vehicle: vehicle.label, km, estimate: subtotal, list_price: list, client_type: clientType, total: taxes ? taxes.total : null, payment_method: payMethod };
     const box = $('estimate');
     if (vehicle.special) {
       box.innerHTML = `<div class="est-special">Las unidades grandes se cotizan según el volumen, peso y maniobras de la carga. Envíanos tu solicitud y te respondemos con el precio.</div>`;
@@ -116,11 +140,18 @@
     } else {
       box.innerHTML = `
         <div class="est-label">Precio estimado · ${esc(vehicle.label)}</div>
-        <div class="est-detail">Base ${money(vehicle.base)} (hasta ${P.included_km} km)${
+        <div class="est-detail">${list !== est.total ? 'Tarifa con descuento: ' : ''}Base ${money(vehicle.base)} (hasta ${P.included_km} km)${
           est.extraKm ? ` + ${est.extraKm} km × ${money(vehicle.per_km)}` : ''
         }</div>
         <table class="est-table">
-          <tr><td>Subtotal</td><td>${money2(est.total)}</td></tr>
+          ${
+            list !== est.total
+              ? `<tr><td>Precio de lista</td><td>${money2(list)}</td></tr>${
+                  withDiscount ? `<tr class="save"><td>Descuento por pago en ${esc(payMethod.toLowerCase())}</td><td>${money2(est.total - list)}</td></tr>` : ''
+                }`
+              : ''
+          }
+          <tr><td>Subtotal</td><td>${money2(subtotal)}</td></tr>
           ${taxes.lines.map((l) => `<tr class="${l.amount < 0 ? 'minus' : ''}"><td>${esc(l.label)}</td><td>${money2(l.amount)}</td></tr>`).join('')}
           <tr class="grand"><td>Total a pagar</td><td>${money2(taxes.total)} <small>MXN</small></td></tr>
         </table>
@@ -128,7 +159,7 @@
           clientType === 'moral' && taxes.lines.some((l) => l.amount < 0)
             ? 'Las retenciones las entera tu empresa al SAT y se reflejan en la factura. '
             : ''
-        }Casetas aparte.</div>`;
+        }${!withDiscount && list !== est.total ? `Pagando en ${cashMethods.map((m) => m.toLowerCase()).join(' o ')} el total sería ${money2(taxBreakdown(est.total).total)}. ` : ''}Casetas aparte.</div>`;
     }
   }
 
@@ -145,9 +176,9 @@
     return [
       `Solicitud de cotización · ${current.service}`,
       `Unidad: ${current.vehicle}`,
-      current.estimate ? `Estimado en la página: subtotal ${money(current.estimate)}, total con impuestos ${money2(current.total)} (${current.km} km)` : '',
+      current.estimate ? `Estimado en la página: subtotal ${money(current.estimate)}${current.list_price !== current.estimate ? ` (precio de lista ${money(current.list_price)})` : ''}, total con impuestos ${money2(current.total)} (${current.km} km)` : '',
       `Cliente: ${clientType === 'moral' ? 'Persona moral (empresa)' : 'Persona física'}`,
-      d.payment_method && `Forma de pago: ${d.payment_method}`,
+      `Forma de pago: ${current.payment_method}`,
       `Nombre: ${d.name}`,
       d.company && `Empresa: ${d.company}`,
       d.phone && `Teléfono: ${d.phone}`,
@@ -188,7 +219,7 @@
       const res = await fetch('/api/quotes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...d, service: current.service, vehicle: current.vehicle, km: current.km, estimate: current.estimate, client_type: clientType, total: current.total }),
+        body: JSON.stringify({ ...d, service: current.service, vehicle: current.vehicle, km: current.km, estimate: current.estimate, client_type: clientType, total: current.total, list_price: current.list_price, payment_method: current.payment_method }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(out.error || 'No se pudo enviar. Inténtalo de nuevo.');

@@ -54,16 +54,17 @@ router.post(
       client_type: req.body.client_type === 'moral' ? 'moral' : req.body.client_type === 'fisica' ? 'fisica' : null,
       payment_method: str(req.body.payment_method, 80),
       total: num(req.body.total),
+      list_price: num(req.body.list_price),
     };
     if (!q.name) throw bad('Escribe tu nombre.');
     if (!q.phone && !q.email) throw bad('Déjanos un teléfono o correo para contactarte.');
     if (q.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(q.email)) throw bad('El correo no es válido.');
     const id = Number(
       run(
-        `INSERT INTO quote_requests (name, company, phone, email, origin, destination, service_date, cargo, message, service, vehicle, km, estimate, client_type, payment_method, total)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO quote_requests (name, company, phone, email, origin, destination, service_date, cargo, message, service, vehicle, km, estimate, client_type, payment_method, total, list_price)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         q.name, q.company, q.phone, q.email, q.origin, q.destination, q.service_date, q.cargo, q.message, q.service, q.vehicle, q.km, q.estimate,
-        q.client_type, q.payment_method, q.total
+        q.client_type, q.payment_method, q.total, q.list_price
       ).lastInsertRowid
     );
 
@@ -72,6 +73,7 @@ router.post(
     const lines = [
       ['Servicio', q.service],
       ['Unidad', q.vehicle],
+      ['Precio de lista mostrado', q.list_price != null && q.list_price !== q.estimate ? `$${q.list_price.toLocaleString('es-MX')} + impuestos` : null],
       ['Estimado mostrado al cliente', q.estimate != null ? `Subtotal $${q.estimate.toLocaleString('es-MX')} (${q.km} km)${q.total != null ? ` · total con impuestos $${q.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : ''}` : null],
       ['Tipo de cliente', q.client_type && (q.client_type === 'moral' ? 'Persona moral (empresa)' : 'Persona física')],
       ['Forma de pago preferida', q.payment_method],
@@ -125,7 +127,12 @@ router.put(
         rules: Object.fromEntries(['fisica', 'moral'].map((who) => [who, { iva: flag(who, 'iva'), ret_iva: flag(who, 'ret_iva'), ret_isr: flag(who, 'ret_isr') }])),
       };
     }
-    site.updatePricing({ included_km: km, vehicles: req.body.vehicles, taxes });
+    let cashDiscount;
+    if (req.body.cash_discount !== undefined) {
+      cashDiscount = num(req.body.cash_discount);
+      if (!(cashDiscount >= 0 && cashDiscount <= 20)) throw bad('El descuento por efectivo o transferencia debe estar entre 0 y 20%.');
+    }
+    site.updatePricing({ included_km: km, vehicles: req.body.vehicles, taxes, cash_discount: cashDiscount });
     res.json(site.getPricing({ keepDisabled: true }));
   })
 );

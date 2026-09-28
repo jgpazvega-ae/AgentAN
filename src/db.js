@@ -173,6 +173,7 @@ addColumn('quote_requests', 'estimate', 'REAL');
 addColumn('quote_requests', 'client_type', 'TEXT');
 addColumn('quote_requests', 'payment_method', 'TEXT');
 addColumn('quote_requests', 'total', 'REAL');
+addColumn('quote_requests', 'list_price', 'REAL');
 
 // Ayudantes cortos para no repetir prepare() en todos lados.
 function get(sql, ...params) {

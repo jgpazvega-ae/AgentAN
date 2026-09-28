@@ -73,6 +73,13 @@ const DEFAULT_PRICING = {
     ret_iva_services: ['flete'], // la retención de 4% es solo para transporte de bienes
   },
   payment_methods: ['Efectivo', 'Transferencia', 'Tarjeta de crédito o débito (terminal Mercado Pago)'],
+  // En México no se puede cobrar un recargo por pagar con tarjeta (Profeco).
+  // Lo permitido: un PRECIO DE LISTA igual para cualquier forma de pago y un
+  // DESCUENTO para quien paga en efectivo o transferencia. Las tarifas de arriba
+  // son el precio con descuento; el precio de lista se calcula para que el
+  // descuento cubra la comisión de la terminal. 0 = sin descuento.
+  cash_discount: 4,
+  cash_methods: ['Efectivo', 'Transferencia'],
 };
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -97,7 +104,16 @@ function estimate(pricing, { vehicle, km }) {
   const extraKm = Math.max(0, km - pricing.included_km);
   const raw = v.base + extraKm * v.per_km;
   const step = pricing.round_to || 1;
-  return { total: Math.round(raw / step) * step, base: v.base, extra_km: extraKm, per_km: v.per_km };
+  const total = Math.round(raw / step) * step;
+  return { total, list: listPrice(pricing, total), base: v.base, extra_km: extraKm, per_km: v.per_km };
+}
+
+// Precio de lista a partir del precio con descuento (efectivo/transferencia).
+function listPrice(pricing, cashPrice) {
+  const d = (pricing.cash_discount || 0) / 100;
+  if (!d) return cashPrice;
+  // Se redondea hacia arriba a $10 para que el descuento no quede por debajo de la comisión.
+  return Math.ceil(cashPrice / (1 - d) / 10) * 10;
 }
 
 // Mezcla lo guardado por el administrador con los valores por defecto,
@@ -107,6 +123,7 @@ function mergePricing(saved, { keepDisabled = false } = {}) {
   if (!saved || typeof saved !== 'object') return p;
   const pos = (n, fallback) => (Number.isFinite(Number(n)) && Number(n) >= 0 ? Number(n) : fallback);
   p.included_km = pos(saved.included_km, p.included_km);
+  if (saved.cash_discount !== undefined) p.cash_discount = Math.min(20, pos(saved.cash_discount, p.cash_discount));
   if (saved.taxes && typeof saved.taxes === 'object') {
     for (const k of ['iva', 'ret_iva', 'ret_isr']) p.taxes[k] = pos(saved.taxes[k], p.taxes[k]);
     for (const who of ['fisica', 'moral']) {
@@ -131,4 +148,4 @@ function mergePricing(saved, { keepDisabled = false } = {}) {
   return p;
 }
 
-module.exports = { DEFAULT_PRICING, estimate, mergePricing, taxBreakdown };
+module.exports = { DEFAULT_PRICING, estimate, listPrice, mergePricing, taxBreakdown };

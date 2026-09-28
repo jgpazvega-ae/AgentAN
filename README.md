@@ -57,6 +57,8 @@ Ejemplo León en 3.5 t (subtotal $4,900): persona física **$5,684.00**; persona
 
 Formas de pago que se muestran: efectivo, transferencia y tarjeta de crédito o débito (terminal Mercado Pago). El cliente indica su preferida en la solicitud.
 
+**Comisión de la tarjeta.** En México no se puede cobrar un recargo por pagar con tarjeta (Ley Federal de Protección al Consumidor; Profeco sanciona). Por eso el cotizador usa un **precio de lista** (el que se muestra y vale para cualquier forma de pago) y un **descuento por pago en efectivo o transferencia** (4% por defecto) que equivale a la comisión. Las tarifas de la tabla son el precio con descuento; por ejemplo, León en 3.5 t: lista $5,110, con transferencia $4,900 (más impuestos). El porcentaje se cambia en el panel → Empresa → Tarifas (0 = sin descuento).
+
 La lista de destinos con sus distancias aproximadas está en `src/pricing.js`. Si el cliente elige “Otro destino”, puede escribir los km. Cada solicitud guarda la unidad y el precio estimado que vio el cliente.
 
 ## Recibos de pago

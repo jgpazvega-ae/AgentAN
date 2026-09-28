@@ -83,6 +83,7 @@ function updatePricing(input) {
     included_km: input.included_km ?? saved.included_km,
     vehicles: { ...(saved.vehicles || {}) },
     taxes: input.taxes || saved.taxes,
+    cash_discount: input.cash_discount ?? saved.cash_discount,
   };
   for (const [id, v] of Object.entries(input.vehicles || {})) {
     next.vehicles[id] = { base: Number(v.base), per_km: Number(v.per_km), enabled: v.enabled !== false };
