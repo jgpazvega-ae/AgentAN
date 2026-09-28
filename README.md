@@ -12,7 +12,7 @@ La plataforma sirve para que el chofer:
 - **Inicie sesión y vea sus viajes asignados** (pendientes e historial).
 - **Reciba avisos al instante** cuando se le asigna, cambia o cancela un viaje: **notificación push** (como Uber) y **correo electrónico**.
 - **Navegue con Google Maps** a la recolección y al destino con un toque.
-- **Inicie y finalice el viaje desde la página** tomando **foto del odómetro** al inicio y al final.
+- **Inicie y finalice el viaje desde la página** tomando **foto del odómetro y del nivel de combustible** al salir y al regresar a su domicilio o base.
 - Registre **cargas de combustible** (litros, importe y foto del ticket) y envíe **notas** a la oficina.
 
 Y para que el administrador:
@@ -91,21 +91,23 @@ Cada recibo tiene folio (`P-00001` para pagos semanales y `B-00001` para bonos),
 ## Flujo del viaje
 
 ```
-Asignado ─(foto odómetro)─▶ Rumbo a cargar ─▶ Cargado (en espera) ─(foto de la carga)─▶ En ruta
-         ─(foto de llegada)─▶ En el punto de entrega ─(prueba de entrega + odómetro)─▶ Entregado
+Asignado ─(odómetro + combustible)─▶ Rumbo a cargar ─▶ Cargado (en espera) ─(foto de la carga)─▶ En ruta
+         ─(foto de llegada)─▶ En el punto de entrega ─(prueba de entrega + odómetro)─▶ Entregado, regresando
+         ─(odómetro + combustible)─▶ Cerrado
 ```
 
 | Paso | Qué hace el chofer | Fotos que quedan en la plataforma |
 |---|---|---|
-| **Iniciar viaje** | Antes de arrancar hacia la recolección | Odómetro + lectura |
+| **Iniciar viaje** | Antes de arrancar hacia la recolección | Odómetro + lectura, **tablero con la aguja de combustible** + nivel (lleno, 3/4, 1/2…) |
 | **Terminé de cargar** | Al terminar de subir la mercancía. El viaje puede quedarse “Cargado” horas o días | — |
 | **Salir rumbo al destino** | Cuando arranca el viaje oficial (por ejemplo, al día siguiente) | **Foto de la carga** |
 | **Llegué al punto de entrega** | Al llegar al destino | **Foto de llegada** |
-| **Entregar** | Al entregar | **Prueba de entrega** (1 a 3 fotos), **nombre de quien recibe**, **firma** en pantalla (opcional) y odómetro final |
+| **Entregar** | Al entregar | **Prueba de entrega** (1 a 3 fotos), **nombre de quien recibe**, **firma** en pantalla (opcional) y odómetro al entregar |
+| **Llegué a mi domicilio / base** | Al estacionar la unidad de regreso | Odómetro + lectura y **tablero con la aguja de combustible** + nivel. Cierra el viaje. |
 
-Cada foto guarda fecha, hora y la ubicación del celular (si el chofer da permiso). El personal ve todas las fotos en el detalle del viaje. El cliente ve las de carga, llegada, entrega y firma, pero no las del odómetro ni los tickets de combustible.
+Cada foto guarda fecha, hora y la ubicación del celular (si el chofer da permiso). El personal ve todas las fotos en el detalle del viaje. El cliente ve las de carga, llegada, entrega y firma, pero no las del odómetro, el tablero ni los tickets de combustible. Para el cliente el envío termina al entregarse; el regreso del chofer es interno.
 
-Así se cubre el caso de **cargar un día y salir al siguiente**: los km recorridos cuentan desde que el chofer sale a cargar hasta que entrega.
+Así se cubre el caso de **cargar un día y salir al siguiente**: los km recorridos cuentan desde que el chofer sale a cargar hasta que regresa a su domicilio o base.
 
 ## Perfiles de usuario
 
@@ -121,11 +123,16 @@ Los usuarios se crean en el panel → **Usuarios** → **Nuevo usuario**, eligie
 ### Cálculo del rendimiento
 
 ```
-km recorridos = odómetro final − odómetro inicial
-km por litro  = km recorridos ÷ litros cargados durante el viaje
+km a la entrega   = odómetro al entregar − odómetro al salir
+km de regreso     = odómetro al regresar − odómetro al entregar
+km totales        = odómetro al regresar − odómetro al salir
+litros usados     = litros cargados en el viaje + (nivel al salir − nivel al regresar) × capacidad del tanque
+km por litro      = km totales ÷ litros usados
 ```
 
-Para que el dato sea preciso se recomienda el método de **tanque lleno**: llenar el tanque al terminar cada viaje y registrar esa carga (el chofer con “⛽ Cargué combustible” o el administrador desde el detalle del viaje). Si el chofer escribe mal una lectura, el administrador la puede corregir en *Editar → Corregir lecturas del odómetro* comparando con la foto.
+Ejemplo: sale con 3/4, carga 120 L en carretera y regresa con 1/2 en un tanque de 100 L → 120 + 25 = 145 L usados. Con 1,015 km → 7.0 km/L.
+
+Registra la **capacidad del tanque** de cada vehículo (Vehículos → editar) para convertir la aguja en litros. La lectura de la aguja es aproximada (octavos); para mayor precisión se puede seguir usando el método de **tanque lleno** (salir y regresar con el tanque lleno y registrar cada carga con “⛽ Cargué combustible”). Si el chofer escribe mal una lectura, el administrador la puede corregir en *Editar → Corregir lecturas del odómetro* (al salir, al entregar y al regresar) comparando con la foto.
 
 ## Probarlo en tu computadora
 

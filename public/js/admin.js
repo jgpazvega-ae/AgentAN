@@ -154,6 +154,7 @@ function openTripForm(trip) {
   form.notes.value = t.notes || '';
   form.odo_start.value = t.odo_start ?? '';
   form.odo_end.value = t.odo_end ?? '';
+  form.odo_return.value = t.odo_return ?? '';
   pickupPicker.setValue({ address: t.pickup_address, lat: t.pickup_lat, lng: t.pickup_lng });
   destPicker.setValue({ address: t.dest_address, lat: t.dest_lat, lng: t.dest_lng });
   $('#trip-dialog').showModal();
@@ -184,6 +185,7 @@ $('#trip-form').addEventListener('submit', async (e) => {
   if (editingTrip && editingTrip.odo_start != null) {
     body.odo_start = form.odo_start.value;
     body.odo_end = form.odo_end.value;
+    body.odo_return = form.odo_return.value;
   }
   const btn = $('#trip-save');
   btn.disabled = true;
@@ -213,20 +215,25 @@ async function openDetail(id) {
   }
   const photo = (file, caption) =>
     file ? `<figure><img data-zoom src="/api/photos/${encodeURIComponent(file)}" alt="${esc(caption)}"><figcaption>${esc(caption)}</figcaption></figure>` : '';
-  // Fotos en el orden del viaje: odómetro, carga, llegada, entrega, firma, odómetro final, tickets.
+  // Fotos en el orden del viaje: odómetro y combustible al salir, carga, llegada,
+  // entrega, firma, odómetro al entregar, odómetro y combustible al regresar, tickets.
   const stagePhotos = (kind) => t.photos.filter((p) => p.kind === kind).map((p) => photo(p.file, `${PHOTO_KIND[kind]} · ${fmtUtc(p.created_at)}`));
   const photos = [
-    photo(t.odo_start_photo, `Odómetro inicial: ${fmtNum(t.odo_start)} km`),
+    photo(t.odo_start_photo, `Odómetro al salir: ${fmtNum(t.odo_start)} km`),
+    photo(t.fuel_start_photo, `Combustible al salir: ${fuelLabel(t.fuel_start)}`),
     ...stagePhotos('carga'),
     ...stagePhotos('llegada'),
     ...stagePhotos('entrega'),
     ...stagePhotos('firma'),
-    photo(t.odo_end_photo, `Odómetro final: ${fmtNum(t.odo_end)} km`),
+    photo(t.odo_end_photo, `Odómetro al entregar: ${fmtNum(t.odo_end)} km`),
+    photo(t.odo_return_photo, `Odómetro al regresar: ${fmtNum(t.odo_return)} km`),
+    photo(t.fuel_end_photo, `Combustible al regresar: ${fuelLabel(t.fuel_end)}`),
     ...t.fuel.map((f) => photo(f.photo, `Ticket ${fmtNum(f.liters, 1)} L`)),
   ].join('');
 
   const canEdit = t.status !== 'cancelado';
   const canCancel = ['asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino'].includes(t.status);
+  const tank = t.vehicle_tank_liters;
 
   $('#detail-body').innerHTML = `
     <div class="card-head">
@@ -251,13 +258,28 @@ async function openDetail(id) {
           <dt>Llegó a entregar</dt><dd>${esc(fmtDate(t.arrived_at, true))}</dd>
           <dt>Entregado</dt><dd>${esc(fmtDate(t.finished_at, true))}</dd>
           ${t.received_by ? `<dt>Recibió</dt><dd><b>${esc(t.received_by)}</b></dd>` : ''}
+          <dt>Regresó a base</dt><dd>${esc(fmtDate(t.returned_at, true))}</dd>
         </dl>
       </div>
       <div>
         <h3>Combustible y rendimiento</h3>
+        <table class="list trace">
+          <thead><tr><th></th><th class="num">Odómetro</th><th>Combustible</th></tr></thead>
+          <tbody>
+            <tr><td>Al salir</td><td class="num">${fmtNum(t.odo_start)}</td><td>${esc(fuelLabel(t.fuel_start))}</td></tr>
+            <tr><td>Al entregar</td><td class="num">${fmtNum(t.odo_end)}</td><td class="muted">—</td></tr>
+            <tr><td>Al regresar</td><td class="num">${fmtNum(t.odo_return)}</td><td>${esc(fuelLabel(t.fuel_end))}</td></tr>
+          </tbody>
+        </table>
+        <p class="muted small">
+          km a la entrega: <b>${fmtNum(t.km_delivery)}</b> · km de regreso: <b>${fmtNum(t.km_return)}</b>
+          · Litros cargados: <b>${fmtNum(t.fuel_liters, 1)}</b>
+          ${t.fuel_level_liters != null ? ` · Por nivel del tanque: <b>${fmtNum(t.fuel_level_liters, 1)}</b> L` : ''}
+          ${t.fuel_start != null && t.fuel_end != null && !(tank > 0) ? '<br>⚠ Registra la capacidad del tanque del vehículo para convertir el nivel de la aguja a litros.' : ''}
+        </p>
         <div class="row">
-          <div class="metric"><b>${fmtNum(t.km)}</b><span>km</span></div>
-          <div class="metric"><b>${fmtNum(t.fuel_liters, 1)}</b><span>litros</span></div>
+          <div class="metric"><b>${fmtNum(t.km)}</b><span>km totales</span></div>
+          <div class="metric"><b>${fmtNum(t.fuel_used, 1)}</b><span>litros usados</span></div>
           <div class="metric"><b>${t.km_per_liter ? fmtNum(t.km_per_liter, 2) : '—'}</b><span>km/L</span></div>
           <div class="metric"><b>${t.liters_per_100km ? fmtNum(t.liters_per_100km, 1) : '—'}</b><span>L/100 km</span></div>
           ${t.fuel_amount ? `<div class="metric"><b>$${fmtNum(t.fuel_amount, 2)}</b><span>gasto</span></div>` : ''}
@@ -478,12 +500,13 @@ async function loadVehicles() {
         <td><b>${esc(v.name)}</b></td>
         <td>${esc(v.plate || '—')}</td>
         <td>${esc(v.fuel_type || '—')}</td>
+        <td class="num">${v.tank_liters != null ? fmtNum(v.tank_liters) : '—'}</td>
         <td class="num">${v.last_odometer != null ? fmtNum(v.last_odometer) : '—'}</td>
         <td>${v.active ? 'Activo' : '<span class="muted">Inactivo</span>'}</td>
       </tr>`
         )
         .join('')
-    : '<tr><td colspan="5" class="empty">Agrega tus vehículos para medir el rendimiento de cada uno.</td></tr>';
+    : '<tr><td colspan="6" class="empty">Agrega tus vehículos para medir el rendimiento de cada uno.</td></tr>';
 }
 
 $('#vehicles-body').addEventListener('click', (e) => {
@@ -502,6 +525,7 @@ function openVehicleForm(v) {
   form.plate.value = v?.plate || '';
   form.fuel_type.value = v?.fuel_type || 'Diésel';
   form.last_odometer.value = v?.last_odometer ?? '';
+  form.tank_liters.value = v?.tank_liters ?? '';
   form.active.checked = v ? Boolean(v.active) : true;
   $('#vehicle-active-row').classList.toggle('hidden', !v);
   $('#vehicle-dialog').showModal();
@@ -515,6 +539,7 @@ $('#vehicle-form').addEventListener('submit', async (e) => {
     plate: form.plate.value,
     fuel_type: form.fuel_type.value,
     last_odometer: form.last_odometer.value,
+    tank_liters: form.tank_liters.value,
   };
   try {
     if (editingVehicle) {
@@ -556,11 +581,11 @@ async function loadReport() {
   $('#r-vehicles').innerHTML = groupTable(data.byVehicle);
   $('#r-drivers').innerHTML = groupTable(data.byDriver);
   $('#r-trips').innerHTML = data.trips.length
-    ? `<table class="list"><thead><tr><th>#</th><th>Finalizó</th><th>Chofer</th><th>Vehículo</th><th class="num">Odóm. inicial</th><th class="num">Odóm. final</th><th class="num">km</th><th class="num">Litros</th><th class="num">km/L</th></tr></thead><tbody>
+    ? `<table class="list"><thead><tr><th>#</th><th>Finalizó</th><th>Chofer</th><th>Vehículo</th><th class="num">Odóm. salida</th><th class="num">Odóm. regreso</th><th class="num">km</th><th class="num">Litros</th><th class="num">km/L</th></tr></thead><tbody>
       ${data.trips
         .map(
           (t) => `<tr class="clickable" data-id="${t.id}"><td>${t.id}</td><td>${esc(fmtDate(t.finished_at, true))}</td><td>${esc(t.driver_name || '—')}</td><td>${esc(t.vehicle_name || '—')}</td>
-            <td class="num">${fmtNum(t.odo_start)}</td><td class="num">${fmtNum(t.odo_end)}</td><td class="num">${fmtNum(t.km)}</td><td class="num">${fmtNum(t.fuel_liters, 1)}</td>
+            <td class="num">${fmtNum(t.odo_start)}</td><td class="num">${fmtNum(t.odo_return ?? t.odo_end)}</td><td class="num">${fmtNum(t.km)}</td><td class="num">${fmtNum(t.fuel_used, 1)}</td>
             <td class="num"><b>${t.km_per_liter ? fmtNum(t.km_per_liter, 2) : '—'}</b></td></tr>`
         )
         .join('')}</tbody></table>`

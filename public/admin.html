@@ -80,7 +80,7 @@
       <div class="toolbar"><button class="btn-primary" id="new-vehicle">＋ Nuevo vehículo</button></div>
       <div class="card table-wrap" style="padding:0">
         <table class="list">
-          <thead><tr><th>Nombre</th><th>Placas</th><th>Combustible</th><th class="num">Último odómetro</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Placas</th><th>Combustible</th><th class="num">Tanque (L)</th><th class="num">Último odómetro</th><th>Estado</th></tr></thead>
           <tbody id="vehicles-body"></tbody>
         </table>
       </div>
@@ -247,9 +247,10 @@
 
       <details id="odo-fix" class="hidden">
         <summary class="small muted" style="margin-top:12px;cursor:pointer">Corregir lecturas del odómetro</summary>
-        <div class="grid-2">
-          <div><label>Odómetro inicial (km)</label><input name="odo_start" type="number" step="0.1" min="0"></div>
-          <div><label>Odómetro final (km)</label><input name="odo_end" type="number" step="0.1" min="0"></div>
+        <div class="grid-3">
+          <div><label>Al salir (km)</label><input name="odo_start" type="number" step="0.1" min="0"></div>
+          <div><label>Al entregar (km)</label><input name="odo_end" type="number" step="0.1" min="0"></div>
+          <div><label>Al regresar (km)</label><input name="odo_return" type="number" step="0.1" min="0"></div>
         </div>
       </details>
 
@@ -304,7 +305,11 @@
           <select name="fuel_type"><option>Diésel</option><option>Gasolina</option><option>Gas LP</option><option>Otro</option></select>
         </div>
       </div>
-      <label>Odómetro actual (km)</label><input name="last_odometer" type="number" step="0.1" min="0">
+      <div class="grid-2">
+        <div><label>Odómetro actual (km)</label><input name="last_odometer" type="number" step="0.1" min="0"></div>
+        <div><label>Capacidad del tanque (litros)</label><input name="tank_liters" type="number" step="1" min="1" max="2000" placeholder="Ej. 80"></div>
+      </div>
+      <p class="muted small">Con la capacidad del tanque, el nivel de la aguja que reporta el chofer al salir y al regresar se convierte en litros para calcular el rendimiento.</p>
       <label class="checkbox hidden" id="vehicle-active-row"><input type="checkbox" name="active"> Activo</label>
       <div class="msg"></div>
       <div class="dialog-actions">

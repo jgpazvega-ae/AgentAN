@@ -1,5 +1,5 @@
 // Service worker: permite instalar la página como app y recibir notificaciones push.
-const CACHE = 'fletes-v4';
+const CACHE = 'fletes-v5';
 const SHELL = ['/login.html', '/chofer.html', '/cliente.html', '/admin.html', '/css/app.css', '/js/common.js', '/js/driver.js', '/js/client.js', '/js/admin.js', '/js/admin-payments.js', '/js/admin-site.js', '/js/maps.js', '/icons/favicon.png', '/img/logo.png', '/icons/icon-192.png', '/icons/badge-72.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {

@@ -69,7 +69,7 @@ router.get(
               (SELECT p.id FROM payment_items i JOIN payments p ON p.id = i.payment_id
                 WHERE i.trip_id = t.id AND p.status = 'emitido' LIMIT 1) AS paid_in
          FROM trips t
-        WHERE t.driver_id = ? AND t.status = 'finalizado'
+        WHERE t.driver_id = ? AND t.status IN ('entregado', 'finalizado')
           AND substr(t.finished_at, 1, 10) BETWEEN ? AND ?
         ORDER BY t.finished_at`,
       driverId,

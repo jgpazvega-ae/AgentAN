@@ -26,7 +26,8 @@ const USERS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
 )`;
 
 // Estados del viaje:
-// asignado → en_recoleccion → cargado → en_ruta → en_destino → finalizado (o cancelado)
+// asignado → en_recoleccion → cargado → en_ruta → en_destino → entregado → finalizado (o cancelado)
+// "entregado": ya entregó y va de regreso; "finalizado": llegó a su domicilio o base.
 const TRIPS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   driver_id INTEGER REFERENCES users(id),
@@ -43,7 +44,7 @@ const TRIPS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
   dest_lng REAL,
   delivery_at TEXT,
   status TEXT NOT NULL DEFAULT 'asignado'
-    CHECK (status IN ('asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino', 'finalizado', 'cancelado')),
+    CHECK (status IN ('asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino', 'entregado', 'finalizado', 'cancelado')),
   started_at TEXT,
   odo_start REAL,
   odo_start_photo TEXT,
@@ -58,7 +59,16 @@ const TRIPS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   client_id INTEGER REFERENCES users(id),
   arrived_at TEXT,
-  received_by TEXT
+  received_by TEXT,
+  -- Regreso a domicilio o base: odómetro final del recorrido completo.
+  returned_at TEXT,
+  odo_return REAL,
+  odo_return_photo TEXT,
+  -- Nivel de combustible del tablero (0 = vacío, 1 = lleno) al salir y al regresar.
+  fuel_start REAL,
+  fuel_start_photo TEXT,
+  fuel_end REAL,
+  fuel_end_photo TEXT
 )`;
 
 // Bases de datos creadas con la versión anterior: se reconstruyen las tablas
@@ -91,7 +101,7 @@ if (tableSql('users') && !tableSql('users').includes('superadmin')) {
   // El primer administrador (quien configuró la plataforma) pasa a ser el superadministrador.
   db.exec("UPDATE users SET role = 'superadmin' WHERE id = (SELECT MIN(id) FROM users WHERE role = 'admin')");
 }
-if (tableSql('trips') && !tableSql('trips').includes('en_destino')) {
+if (tableSql('trips') && !tableSql('trips').includes('entregado')) {
   rebuildTable('trips', TRIPS_SQL);
 }
 
@@ -227,6 +237,7 @@ function addColumn(table, column, type) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
 }
+addColumn('vehicles', 'tank_liters', 'REAL'); // capacidad del tanque, para convertir el nivel en litros
 addColumn('quote_requests', 'service', 'TEXT');
 addColumn('quote_requests', 'vehicle', 'TEXT');
 addColumn('quote_requests', 'km', 'REAL');

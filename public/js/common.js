@@ -4,6 +4,17 @@ const ROLE_LABEL = { superadmin: 'Superadministrador', admin: 'Personal de AN', 
 const isStaffRole = (role) => role === 'admin' || role === 'superadmin';
 
 // Tipos de foto de las etapas del viaje.
+// Nivel del tanque (fracción) → texto, como lo marca el tablero.
+const FUEL_LEVELS = [
+  [1, 'Lleno (F)'], [0.875, '7/8'], [0.75, '3/4'], [0.625, '5/8'], [0.5, '1/2'],
+  [0.375, '3/8'], [0.25, '1/4'], [0.125, '1/8'], [0, 'Reserva (E)'],
+];
+function fuelLabel(level) {
+  if (level == null) return '—';
+  const hit = FUEL_LEVELS.find(([v]) => Math.abs(v - level) < 0.01);
+  return hit ? hit[1] : `${Math.round(level * 100)}%`;
+}
+
 const PHOTO_KIND = { carga: 'Carga antes de salir', llegada: 'Llegada al punto de entrega', entrega: 'Prueba de entrega', firma: 'Firma de quien recibe' };
 
 const STATUS = {
@@ -12,7 +23,8 @@ const STATUS = {
   cargado: { label: 'Cargado, en espera de salir', step: 2 },
   en_ruta: { label: 'En ruta al destino', step: 3 },
   en_destino: { label: 'En el punto de entrega', step: 4 },
-  finalizado: { label: 'Entregado', step: 5 },
+  entregado: { label: 'Entregado, regresando a base', step: 5 },
+  finalizado: { label: 'Cerrado (regresó a base)', step: 6 },
   cancelado: { label: 'Cancelado', step: -1 },
 };
 

@@ -82,6 +82,9 @@ h3 { font-size: 1rem; }
 .grow { flex: 1; }
 .grid-2 { display: grid; gap: 12px; grid-template-columns: 1fr; }
 @media (min-width: 720px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+.grid-3 { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 560px) { .grid-3 { grid-template-columns: 1fr 1fr 1fr; } }
+.trace { margin-bottom: 6px; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 12px; }
 .toolbar label { margin: 0; }
 
@@ -129,6 +132,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 .st-en_recoleccion, .st-cargado { background: var(--warn-soft); color: var(--warn); }
 .st-en_ruta { background: #ede9fe; color: #6d28d9; }
 .st-en_destino { background: #cffafe; color: #0e7490; }
+.st-entregado { background: #dcfce7; color: #15803d; }
 .st-finalizado { background: var(--ok-soft); color: var(--ok); }
 .st-cancelado { background: var(--danger-soft); color: var(--danger); }
 @media (prefers-color-scheme: dark) { .st-en_ruta { background: #4c1d9588; color: #c4b5fd; } }

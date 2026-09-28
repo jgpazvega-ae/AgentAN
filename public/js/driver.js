@@ -1,5 +1,5 @@
-// Página del chofer: lista de viajes, pasos del viaje con fotos (odómetro,
-// carga, llegada y prueba de entrega).
+// Página del chofer: lista de viajes, pasos del viaje con fotos (odómetro y
+// combustible al salir y al regresar, carga, llegada y prueba de entrega).
 let cfg = {};
 let me = null;
 let tab = 'open';
@@ -9,20 +9,22 @@ let fuelTrip = null;
 let noteTrip = null;
 
 const ACTIONS = {
-  asignado: { label: '▶ Iniciar viaje', cls: 'btn-primary', kind: 'start', help: 'Antes de arrancar hacia la recolección, toma la foto del odómetro.' },
+  asignado: { label: '▶ Iniciar viaje', cls: 'btn-primary', kind: 'start', help: 'Antes de arrancar hacia la recolección, toma la foto del odómetro y del nivel de combustible.' },
   en_recoleccion: { label: '📦 Terminé de cargar', cls: 'btn-primary', kind: 'loaded', help: 'Presiona cuando la mercancía esté cargada. Si sales hasta otro día, el viaje quedará en espera.' },
   cargado: { label: '🚚 Salir rumbo al destino', cls: 'btn-primary', kind: 'depart', help: 'Justo antes de arrancar hacia el destino, toma la foto de la carga.' },
   en_ruta: { label: '📍 Llegué al punto de entrega', cls: 'btn-primary', kind: 'arrive', help: 'Al llegar al destino, toma una foto del lugar.' },
   en_destino: { label: '✅ Entregar', cls: 'btn-ok', kind: 'finish', help: 'Toma las fotos de la prueba de entrega, anota quién recibe y la foto del odómetro.' },
+  entregado: { label: '🏠 Llegué a mi domicilio / base', cls: 'btn-primary', kind: 'return', help: 'Al estacionar la unidad en tu domicilio o en la base, toma la foto del odómetro y del nivel de combustible para cerrar el viaje.' },
 };
 
 // Qué pide cada paso. Todas las fotos quedan guardadas en la plataforma.
 const STEPS = {
   start: {
     title: 'Iniciar viaje',
-    help: 'Toma una foto clara del odómetro (kilometraje) antes de arrancar hacia la recolección y escribe la lectura.',
+    help: 'Antes de arrancar hacia la recolección: foto clara del odómetro (kilometraje) con su lectura y foto del tablero con el nivel de combustible.',
     photo: '📷 Foto del odómetro',
     odometer: 'start',
+    fuel: true,
     done: 'Viaje iniciado. ¡Buen camino!',
   },
   depart: {
@@ -45,7 +47,15 @@ const STEPS = {
     signature: true,
     photo: '📷 Foto del odómetro final',
     odometer: 'end',
-    done: '¡Entrega registrada! Viaje finalizado.',
+    done: '¡Entrega registrada! Al llegar a tu domicilio o base, cierra el viaje.',
+  },
+  return: {
+    title: 'Llegué a mi domicilio / base',
+    help: 'Con la unidad ya estacionada: foto del odómetro con su lectura y foto del tablero con el nivel de combustible. Así cerramos los kilómetros y el combustible de todo el recorrido.',
+    photo: '📷 Foto del odómetro',
+    odometer: 'return',
+    fuel: true,
+    done: 'Viaje cerrado. ¡Gracias!',
   },
 };
 
@@ -106,19 +116,19 @@ function tripCard(t) {
     t.status === 'finalizado'
       ? `<div class="row" style="margin-top:8px">
           <div class="metric"><b>${fmtNum(t.km)}</b><span>km recorridos</span></div>
-          <div class="metric"><b>${fmtNum(t.fuel_liters, 1)}</b><span>litros</span></div>
+          <div class="metric"><b>${fmtNum(t.fuel_used, 1)}</b><span>litros</span></div>
           <div class="metric"><b>${t.km_per_liter ? fmtNum(t.km_per_liter, 2) : '—'}</b><span>km por litro</span></div>
         </div>`
       : '';
 
-  const isOpen = ['en_recoleccion', 'cargado', 'en_ruta', 'en_destino'].includes(t.status);
+  const isOpen = ['en_recoleccion', 'cargado', 'en_ruta', 'en_destino', 'entregado'].includes(t.status);
   return `
   <article class="card" id="viaje-${t.id}">
     <div class="card-head">
       <div><h2>Viaje #${t.id}</h2>${statusBadge(t.status)}</div>
       <span class="muted small">${t.odo_start != null ? `Odómetro inicial: ${fmtNum(t.odo_start)} km` : ''}</span>
     </div>
-    ${t.status !== 'cancelado' ? `<div class="steps">${[1, 2, 3, 4, 5].map((i) => `<span class="${step >= i ? 'done' : ''}"></span>`).join('')}</div>` : ''}
+    ${t.status !== 'cancelado' ? `<div class="steps">${[1, 2, 3, 4, 5, 6].map((i) => `<span class="${step >= i ? 'done' : ''}"></span>`).join('')}</div>` : ''}
     <div class="stop">
       <div class="dot">📍</div>
       <div class="body">
@@ -294,11 +304,25 @@ function openStep(trip, kind) {
   if (cfgStep.odometer) parts.push('<h3 class="step-h">Odómetro</h3>');
   parts.push(photoSlot('photo', cfgStep.photo, true));
   if (cfgStep.odometer) {
-    const ref = cfgStep.odometer === 'start' ? trip.vehicle_last_odometer : trip.odo_start;
-    const refLabel = cfgStep.odometer === 'start' ? 'Última lectura registrada de este vehículo' : 'Lectura al iniciar';
+    const [ref, refLabel] = {
+      start: [trip.vehicle_last_odometer, 'Última lectura registrada de este vehículo'],
+      end: [trip.odo_start, 'Lectura al iniciar'],
+      return: [trip.odo_end ?? trip.odo_start, 'Lectura al entregar'],
+    }[cfgStep.odometer];
+    const min = cfgStep.odometer !== 'start' && ref != null ? ref : 0;
     parts.push(`<label for="odo-reading">Lectura del odómetro (km)</label>
-      <input id="odo-reading" name="odometer" type="number" inputmode="decimal" step="0.1" min="${cfgStep.odometer === 'end' && trip.odo_start != null ? trip.odo_start : 0}" required placeholder="Ej. 125430">
+      <input id="odo-reading" name="odometer" type="number" inputmode="decimal" step="0.1" min="${min}" required placeholder="Ej. 125430">
       ${ref != null ? `<p class="muted small">${refLabel}: ${fmtNum(ref)} km</p>` : ''}`);
+  }
+  if (cfgStep.fuel) {
+    parts.push(`<h3 class="step-h">Combustible</h3>
+      ${photoSlot('fuel', '📷 Foto del tablero (aguja de gasolina)', true)}
+      <label for="fuel-level">¿Cómo marca la aguja?</label>
+      <select id="fuel-level" name="fuel_level" required>
+        <option value="">Elige el nivel…</option>
+        ${FUEL_LEVELS.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}
+      </select>
+      ${cfgStep.odometer === 'return' && trip.fuel_start != null ? `<p class="muted small">Al iniciar marcaba: ${esc(fuelLabel(trip.fuel_start))}</p>` : ''}`);
   }
   $('#step-fields').innerHTML = parts.join('');
   $('#step-msg').innerHTML = '';
@@ -363,13 +387,25 @@ $('#step-form').addEventListener('submit', async (e) => {
   if (cfgStep.receivedBy && !form.received_by.value.trim()) return showError($('#step-msg'), 'Escribe el nombre de quien recibe.');
   if (!main) return showError($('#step-msg'), `Falta: ${cfgStep.photo.replace('📷 ', '')}.`);
   if (cfgStep.odometer && !form.odometer.value) return showError($('#step-msg'), 'Escribe la lectura del odómetro.');
+  const fuelFile = cfgStep.fuel ? form.querySelector('input[name=fuel]').files[0] : null;
+  if (cfgStep.fuel && !fuelFile) return showError($('#step-msg'), 'Falta la foto del tablero con el nivel de combustible.');
+  if (cfgStep.fuel && form.fuel_level.value === '') return showError($('#step-msg'), 'Elige cómo marca la aguja de combustible.');
   const btn = $('#step-submit');
   btn.disabled = true;
   btn.textContent = 'Enviando…';
   try {
-    const [photo, pos, ...podBlobs] = await Promise.all([shrinkPhoto(main), currentPosition(), ...pods.map((f) => shrinkPhoto(f))]);
+    const [photo, fuelBlob, pos, ...podBlobs] = await Promise.all([
+      shrinkPhoto(main),
+      fuelFile ? shrinkPhoto(fuelFile) : null,
+      currentPosition(),
+      ...pods.map((f) => shrinkPhoto(f)),
+    ]);
     const body = new FormData();
     body.append('photo', photo, 'foto.jpg');
+    if (fuelBlob) {
+      body.append('fuel', fuelBlob, 'combustible.jpg');
+      body.append('fuel_level', form.fuel_level.value);
+    }
     podBlobs.forEach((b, i) => body.append('pod', b, `entrega-${i + 1}.jpg`));
     if (cfgStep.odometer) body.append('odometer', form.odometer.value);
     if (cfgStep.receivedBy) body.append('received_by', form.received_by.value.trim());
@@ -383,7 +419,7 @@ $('#step-form').addEventListener('submit', async (e) => {
     }
     const trip = await api(`/trips/${stepAction.trip.id}/${stepAction.kind}`, { method: 'POST', body });
     $('#step-dialog').close();
-    toast(stepAction.kind === 'finish' && trip.km != null ? `${cfgStep.done} ${fmtNum(trip.km)} km recorridos.` : cfgStep.done);
+    toast(stepAction.kind === 'return' && trip.km != null ? `${cfgStep.done} ${fmtNum(trip.km)} km recorridos.` : cfgStep.done);
     await load(true);
   } catch (err) {
     showError($('#step-msg'), err);

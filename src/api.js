@@ -49,6 +49,7 @@ const TRIP_SELECT = `
   SELECT t.*,
          d.name AS driver_name, d.email AS driver_email, d.phone AS driver_phone,
          v.name AS vehicle_name, v.plate AS vehicle_plate, v.last_odometer AS vehicle_last_odometer,
+         v.tank_liters AS vehicle_tank_liters,
          c.name AS client_name, c.email AS client_email, c.company AS client_company,
          (SELECT COALESCE(SUM(f.liters), 0) FROM fuel_loads f WHERE f.trip_id = t.id) AS fuel_liters,
          (SELECT COALESCE(SUM(f.amount), 0) FROM fuel_loads f WHERE f.trip_id = t.id) AS fuel_amount
@@ -69,15 +70,29 @@ const CLIENT_TRIP_FIELDS = [
   'arrived_at', 'finished_at', 'cancelled_at', 'received_by', 'driver_name', 'vehicle_name', 'vehicle_plate',
 ];
 function forClient(trip) {
-  return Object.fromEntries(CLIENT_TRIP_FIELDS.map((k) => [k, trip[k] ?? null]));
+  const out = Object.fromEntries(CLIENT_TRIP_FIELDS.map((k) => [k, trip[k] ?? null]));
+  // Para el cliente el envío termina al entregarse; el regreso del chofer a su base es interno.
+  if (out.status === 'entregado') out.status = 'finalizado';
+  return out;
 }
 
+// Trazabilidad de km y combustible:
+// - km_delivery: de la salida a la entrega (odómetro al entregar − inicial).
+// - km: recorrido completo (odómetro al regresar − inicial; si aún no regresa, hasta la entrega).
+// - fuel_used: litros cargados + lo que bajó la aguja del tablero (nivel inicial − final) × tanque.
 function withMetrics(trip) {
   if (!trip) return trip;
-  const km = trip.odo_start != null && trip.odo_end != null ? trip.odo_end - trip.odo_start : null;
-  trip.km = km;
-  trip.km_per_liter = km != null && trip.fuel_liters > 0 ? km / trip.fuel_liters : null;
-  trip.liters_per_100km = km && trip.fuel_liters > 0 ? (trip.fuel_liters / km) * 100 : null;
+  const diff = (a, b) => (a != null && b != null ? a - b : null);
+  trip.km_delivery = diff(trip.odo_end, trip.odo_start);
+  trip.km_return = diff(trip.odo_return, trip.odo_end);
+  trip.km = diff(trip.odo_return ?? trip.odo_end, trip.odo_start);
+  const tank = trip.vehicle_tank_liters;
+  trip.fuel_level_liters =
+    trip.fuel_start != null && trip.fuel_end != null && tank > 0 ? Math.round((trip.fuel_start - trip.fuel_end) * tank * 10) / 10 : null;
+  const used = (trip.fuel_liters || 0) + (trip.fuel_level_liters || 0);
+  trip.fuel_used = used > 0 ? Math.round(used * 10) / 10 : null;
+  trip.km_per_liter = trip.km != null && trip.fuel_used ? trip.km / trip.fuel_used : null;
+  trip.liters_per_100km = trip.km && trip.fuel_used ? (trip.fuel_used / trip.km) * 100 : null;
   return trip;
 }
 
@@ -263,7 +278,7 @@ router.get(
       all(`SELECT u.id, u.name, u.email, u.phone, u.role, u.company, u.active, u.created_at,
                   (SELECT COUNT(*) FROM push_subscriptions p WHERE p.user_id = u.id) AS push_devices,
                   (SELECT COUNT(*) FROM trips t WHERE (t.driver_id = u.id OR t.client_id = u.id)
-                      AND t.status IN ('asignado','en_recoleccion','cargado','en_ruta','en_destino')) AS open_trips
+                      AND t.status IN ('asignado','en_recoleccion','cargado','en_ruta','en_destino','entregado')) AS open_trips
              FROM users u
             ORDER BY u.active DESC, CASE u.role WHEN 'superadmin' THEN 0 WHEN 'admin' THEN 1 WHEN 'driver' THEN 2 ELSE 3 END, u.name`)
     );
@@ -369,11 +384,12 @@ router.post(
     const name = str(req.body.name, 100);
     if (!name) throw bad('Escribe un nombre para el vehículo.');
     const id = run(
-      'INSERT INTO vehicles (name, plate, fuel_type, last_odometer) VALUES (?, ?, ?, ?)',
+      'INSERT INTO vehicles (name, plate, fuel_type, last_odometer, tank_liters) VALUES (?, ?, ?, ?, ?)',
       name,
       str(req.body.plate, 20),
       str(req.body.fuel_type, 20),
-      num(req.body.last_odometer)
+      num(req.body.last_odometer),
+      num(req.body.tank_liters)
     ).lastInsertRowid;
     res.status(201).json({ id: Number(id) });
   })
@@ -386,11 +402,12 @@ router.put(
     const v = get('SELECT * FROM vehicles WHERE id = ?', Number(req.params.id));
     if (!v) throw new HttpError(404, 'El vehículo no existe.');
     run(
-      'UPDATE vehicles SET name = ?, plate = ?, fuel_type = ?, last_odometer = ?, active = ? WHERE id = ?',
+      'UPDATE vehicles SET name = ?, plate = ?, fuel_type = ?, last_odometer = ?, tank_liters = ?, active = ? WHERE id = ?',
       str(req.body.name, 100) || v.name,
       req.body.plate !== undefined ? str(req.body.plate, 20) : v.plate,
       req.body.fuel_type !== undefined ? str(req.body.fuel_type, 20) : v.fuel_type,
       req.body.last_odometer !== undefined ? num(req.body.last_odometer) : v.last_odometer,
+      req.body.tank_liters !== undefined ? num(req.body.tank_liters) : v.tank_liters,
       req.body.active !== undefined ? (req.body.active ? 1 : 0) : v.active,
       v.id
     );
@@ -399,7 +416,9 @@ router.put(
 );
 
 // ---------- Viajes ----------
-const OPEN = ['asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino'];
+// Abiertos para el personal y el chofer ("entregado" = va de regreso a su base).
+const OPEN = ['asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino', 'entregado'];
+const CANCELABLE = ['asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino'];
 
 router.get(
   '/trips',
@@ -542,12 +561,14 @@ router.put(
     // Correcciones manuales del odómetro (por si el chofer escribió mal la lectura).
     const odoStart = req.body.odo_start !== undefined ? num(req.body.odo_start) : before.odo_start;
     const odoEnd = req.body.odo_end !== undefined ? num(req.body.odo_end) : before.odo_end;
-    if (odoStart != null && odoEnd != null && odoEnd < odoStart) throw bad('El odómetro final no puede ser menor al inicial.');
+    const odoReturn = req.body.odo_return !== undefined ? num(req.body.odo_return) : before.odo_return;
+    if (odoStart != null && odoEnd != null && odoEnd < odoStart) throw bad('El odómetro al entregar no puede ser menor al inicial.');
+    if (odoReturn != null && odoReturn < (odoEnd ?? odoStart ?? 0)) throw bad('El odómetro al regresar no puede ser menor al de la entrega.');
 
     run(
       `UPDATE trips SET driver_id = ?, vehicle_id = ?, client_id = ?, client = ?, cargo = ?, notes = ?, pickup_address = ?, pickup_lat = ?,
               pickup_lng = ?, pickup_at = ?, dest_address = ?, dest_lat = ?, dest_lng = ?, delivery_at = ?,
-              odo_start = ?, odo_end = ?, updated_at = datetime('now')
+              odo_start = ?, odo_end = ?, odo_return = ?, updated_at = datetime('now')
         WHERE id = ?`,
       f.driver_id,
       f.vehicle_id,
@@ -565,6 +586,7 @@ router.put(
       f.delivery_at,
       odoStart,
       odoEnd,
+      odoReturn,
       before.id
     );
     const after = loadTrip(before.id);
@@ -577,12 +599,12 @@ router.put(
     } else {
       const watched = ['pickup_address', 'pickup_at', 'dest_address', 'delivery_at', 'vehicle_id', 'client', 'cargo', 'notes'];
       const changed = watched.filter((k) => (before[k] ?? null) !== (after[k] ?? null));
-      if (odoStart !== before.odo_start || odoEnd !== before.odo_end) {
-        addEvent(before.id, req.user.id, 'correccion', `Odómetro corregido: ${odoStart ?? '—'} → ${odoEnd ?? '—'}`);
+      if (odoStart !== before.odo_start || odoEnd !== before.odo_end || odoReturn !== before.odo_return) {
+        addEvent(before.id, req.user.id, 'correccion', `Odómetro corregido: ${odoStart ?? '—'} → ${odoEnd ?? '—'} → ${odoReturn ?? '—'}`);
       }
       if (changed.length) {
         addEvent(before.id, req.user.id, 'editado', 'Datos del viaje modificados');
-        if (after.status !== 'finalizado') notify.notifyDriverAboutTrip(after, 'updated');
+        if (!['entregado', 'finalizado'].includes(after.status)) notify.notifyDriverAboutTrip(after, 'updated');
       }
     }
     res.json(after);
@@ -594,7 +616,7 @@ router.post(
   auth.requireAdmin,
   h((req, res) => {
     const trip = tripForUser(req);
-    if (!OPEN.includes(trip.status)) throw bad('Este viaje ya no se puede cancelar.');
+    if (!CANCELABLE.includes(trip.status)) throw bad('Este viaje ya no se puede cancelar.');
     run("UPDATE trips SET status = 'cancelado', cancelled_at = ?, updated_at = datetime('now') WHERE id = ?", nowLocal(), trip.id);
     addEvent(trip.id, req.user.id, 'cancelado', str(req.body.reason, 500) || 'Viaje cancelado');
     notify.notifyDriverAboutTrip(trip, 'cancelled');
@@ -612,6 +634,9 @@ router.delete(
     const photos = [
       trip.odo_start_photo,
       trip.odo_end_photo,
+      trip.odo_return_photo,
+      trip.fuel_start_photo,
+      trip.fuel_end_photo,
       ...all('SELECT photo FROM fuel_loads WHERE trip_id = ?', trip.id).map((r) => r.photo),
       ...all('SELECT file FROM trip_photos WHERE trip_id = ?', trip.id).map((r) => r.file),
     ];
@@ -623,9 +648,10 @@ router.delete(
 
 // ---------- Acciones del chofer ----------
 // Cada paso solo se permite desde el estado anterior:
-//   asignado ──(foto del odómetro)──▶ en_recoleccion ──▶ cargado
+//   asignado ──(odómetro y combustible)──▶ en_recoleccion ──▶ cargado
 //   ──(foto de la carga)──▶ en_ruta ──(foto de llegada)──▶ en_destino
-//   ──(prueba de entrega: fotos, quién recibe, firma y odómetro final)──▶ finalizado
+//   ──(prueba de entrega: fotos, quién recibe, firma y odómetro)──▶ entregado
+//   ──(de regreso en su domicilio o base: odómetro y combustible)──▶ finalizado
 // "cargado" puede durar horas o días (se carga un día y se sale al siguiente).
 function driverOnly(req) {
   const trip = tripForUser(req);
@@ -637,6 +663,7 @@ function driverOnly(req) {
 
 const stepUpload = upload.fields([
   { name: 'photo', maxCount: 1 }, // odómetro o foto principal del paso
+  { name: 'fuel', maxCount: 1 }, // tablero con el nivel de combustible
   { name: 'pod', maxCount: 3 }, // prueba de entrega
   { name: 'signature', maxCount: 1 }, // firma de quien recibe
 ]);
@@ -664,7 +691,12 @@ function tripStep({ from, to, stamp, event, label, apply, clientNotice }) {
       try {
         trip = driverOnly(req);
         if (trip.status !== from) throw bad('El viaje no está en el paso correcto. Actualiza la página.');
-        const files = { photo: req.files?.photo?.[0], pod: req.files?.pod || [], signature: req.files?.signature?.[0] };
+        const files = {
+          photo: req.files?.photo?.[0],
+          fuel: req.files?.fuel?.[0],
+          pod: req.files?.pod || [],
+          signature: req.files?.signature?.[0],
+        };
         transaction(() => {
           const note = apply ? apply(trip, files, req) : label;
           run(`UPDATE trips SET status = ?, ${stamp} = ?, updated_at = datetime('now') WHERE id = ?`, to, nowLocal(), trip.id);
@@ -691,14 +723,23 @@ function requirePhoto(file, message) {
   return file.filename;
 }
 
-function readOdometer(req, trip, isEnd) {
+// minimum: lectura anterior del mismo viaje (el odómetro nunca baja).
+function readOdometer(req, minimum, minimumLabel) {
   const reading = num(req.body.odometer);
   if (reading == null || reading < 0) throw bad('Escribe la lectura del odómetro (km).');
-  if (isEnd && trip.odo_start != null && reading < trip.odo_start) {
-    throw bad(`La lectura final (${reading}) no puede ser menor que la inicial (${trip.odo_start}).`);
+  if (minimum != null && reading < minimum) {
+    throw bad(`La lectura (${reading}) no puede ser menor que ${minimumLabel} (${minimum}).`);
   }
   return reading;
 }
+
+// Nivel de la aguja de combustible: 0 (vacío) a 1 (lleno).
+function readFuelLevel(req) {
+  const level = num(req.body.fuel_level);
+  if (level == null || level < 0 || level > 1) throw bad('Indica el nivel de combustible del tablero.');
+  return level;
+}
+const fuelText = (level) => `${Math.round(level * 100)}%`;
 
 // 1) Antes de arrancar: foto y lectura del odómetro.
 router.post(
@@ -711,10 +752,19 @@ router.post(
     label: 'Inició el viaje',
     apply(trip, files, req) {
       const photo = requirePhoto(files.photo, 'Toma la foto del odómetro.');
-      const reading = readOdometer(req, trip, false);
-      run('UPDATE trips SET odo_start = ?, odo_start_photo = ? WHERE id = ?', reading, photo, trip.id);
+      const fuelPhoto = requirePhoto(files.fuel, 'Toma la foto del tablero con el nivel de combustible.');
+      const reading = readOdometer(req, null);
+      const level = readFuelLevel(req);
+      run(
+        'UPDATE trips SET odo_start = ?, odo_start_photo = ?, fuel_start = ?, fuel_start_photo = ? WHERE id = ?',
+        reading,
+        photo,
+        level,
+        fuelPhoto,
+        trip.id
+      );
       if (trip.vehicle_id) run('UPDATE vehicles SET last_odometer = ? WHERE id = ?', reading, trip.vehicle_id);
-      return `Inició el viaje · odómetro ${reading} km`;
+      return `Inició el viaje · odómetro ${reading} km · combustible ${fuelText(level)}`;
     },
   })
 );
@@ -760,27 +810,56 @@ router.post(
 );
 
 // 5) Entrega: fotos de prueba de entrega, nombre de quien recibe, firma (opcional)
-//    y odómetro final.
+//    y odómetro al entregar.
 router.post(
   '/trips/:id/finish',
   ...tripStep({
     from: 'en_destino',
-    to: 'finalizado',
+    to: 'entregado',
     stamp: 'finished_at',
-    event: 'finalizado',
-    label: 'Entregó y finalizó el viaje',
+    event: 'entregado',
+    label: 'Entregó la carga',
     clientNotice: 'entregado',
     apply(trip, files, req) {
       if (!files.pod.length) throw bad('Toma al menos una foto de la prueba de entrega.');
       const receivedBy = str(req.body.received_by, 150);
       if (!receivedBy) throw bad('Escribe el nombre de quien recibe.');
-      const odo = requirePhoto(files.photo, 'Toma la foto del odómetro final.');
-      const reading = readOdometer(req, trip, true);
+      const odo = requirePhoto(files.photo, 'Toma la foto del odómetro al entregar.');
+      const reading = readOdometer(req, trip.odo_start, 'la inicial');
       files.pod.forEach((f) => addPhoto(trip.id, 'entrega', f.filename, req));
       if (files.signature) addPhoto(trip.id, 'firma', files.signature.filename, req);
       run('UPDATE trips SET odo_end = ?, odo_end_photo = ?, received_by = ? WHERE id = ?', reading, odo, receivedBy, trip.id);
       if (trip.vehicle_id) run('UPDATE vehicles SET last_odometer = ? WHERE id = ?', reading, trip.vehicle_id);
       return `Entregado a ${receivedBy} · ${files.pod.length} foto(s) de entrega${files.signature ? ' · con firma' : ''} · odómetro ${reading} km`;
+    },
+  })
+);
+
+// 6) Regreso a su domicilio o base: odómetro y nivel de combustible para cerrar
+//    el recorrido completo (km y combustible de ida y vuelta).
+router.post(
+  '/trips/:id/return',
+  ...tripStep({
+    from: 'entregado',
+    to: 'finalizado',
+    stamp: 'returned_at',
+    event: 'finalizado',
+    label: 'Llegó a su base y cerró el viaje',
+    apply(trip, files, req) {
+      const photo = requirePhoto(files.photo, 'Toma la foto del odómetro al llegar.');
+      const fuelPhoto = requirePhoto(files.fuel, 'Toma la foto del tablero con el nivel de combustible.');
+      const reading = readOdometer(req, trip.odo_end ?? trip.odo_start, 'la registrada al entregar');
+      const level = readFuelLevel(req);
+      run(
+        'UPDATE trips SET odo_return = ?, odo_return_photo = ?, fuel_end = ?, fuel_end_photo = ? WHERE id = ?',
+        reading,
+        photo,
+        level,
+        fuelPhoto,
+        trip.id
+      );
+      if (trip.vehicle_id) run('UPDATE vehicles SET last_odometer = ? WHERE id = ?', reading, trip.vehicle_id);
+      return `Llegó a su base · odómetro ${reading} km · combustible ${fuelText(level)}`;
     },
   })
 );
@@ -860,9 +939,8 @@ router.get(
       ? null
       : get(
           `SELECT t.driver_id, NULL AS client_id FROM trips t
-            WHERE t.odo_start_photo = ? OR t.odo_end_photo = ?
+            WHERE ? IN (t.odo_start_photo, t.odo_end_photo, t.odo_return_photo, t.fuel_start_photo, t.fuel_end_photo)
                OR t.id IN (SELECT trip_id FROM fuel_loads WHERE photo = ?)`,
-          file,
           file,
           file
         );
@@ -901,10 +979,10 @@ router.get(
         g.trips += 1;
         if (t.km != null) g.km += t.km;
         g.amount += t.fuel_amount || 0;
-        if (t.km != null && t.fuel_liters > 0) {
+        if (t.km != null && t.fuel_used > 0) {
           g.measured_trips += 1;
           g.measured_km = (g.measured_km || 0) + t.km;
-          g.liters += t.fuel_liters;
+          g.liters += t.fuel_used;
         }
         map.set(key, g);
       }

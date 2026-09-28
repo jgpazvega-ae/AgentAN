@@ -54,6 +54,13 @@ function odometerForm(reading) {
   fd.append('odometer', String(reading));
   return fd;
 }
+// Salida y regreso: odómetro + foto del tablero con el nivel de combustible (0 a 1).
+function odoFuelForm(reading, level) {
+  const fd = odometerForm(reading);
+  fd.append('fuel', new Blob([JPEG], { type: 'image/jpeg' }), 'tablero.jpg');
+  if (level != null) fd.append('fuel_level', String(level));
+  return fd;
+}
 function photoForm(extra = {}) {
   const fd = new FormData();
   fd.append('photo', new Blob([JPEG], { type: 'image/jpeg' }), 'foto.jpg');
@@ -87,7 +94,7 @@ test('flujo completo de un viaje', async () => {
   const driverId = r.data.id;
   await admin('POST', '/users', { name: 'Pedro', email: 'pedro@example.com', password: 'chofer123', role: 'driver' });
 
-  r = await admin('POST', '/vehicles', { name: 'Camión 1', plate: 'ABC-123', fuel_type: 'Diésel', last_odometer: 100000 });
+  r = await admin('POST', '/vehicles', { name: 'Camión 1', plate: 'ABC-123', fuel_type: 'Diésel', last_odometer: 100000, tank_liters: 100 });
   const vehicleId = r.data.id;
 
   // Se carga un día y se entrega al siguiente.
@@ -131,7 +138,12 @@ test('flujo completo de un viaje', async () => {
   r = await driver('POST', `/trips/${tripId}/start`, noPhoto);
   assert.equal(r.status, 400);
   r = await driver('POST', `/trips/${tripId}/start`, odometerForm(100050));
+  assert.equal(r.status, 400, 'iniciar pide la foto del combustible');
+  r = await driver('POST', `/trips/${tripId}/start`, odoFuelForm(100050));
+  assert.equal(r.status, 400, 'iniciar pide el nivel de combustible');
+  r = await driver('POST', `/trips/${tripId}/start`, odoFuelForm(100050, 0.75));
   assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.fuel_start, 0.75);
   assert.equal(r.data.status, 'en_recoleccion');
   assert.equal(r.data.odo_start, 100050);
   const startPhoto = r.data.odo_start_photo;
@@ -163,10 +175,25 @@ test('flujo completo de un viaje', async () => {
   r = await driver('POST', `/trips/${tripId}/finish`, deliveryForm(100000));
   assert.equal(r.status, 400, 'el odómetro final no puede ser menor al inicial');
   r = await driver('POST', `/trips/${tripId}/finish`, deliveryForm(100950, { pod: 2, signature: true }));
-  assert.equal(r.data.status, 'finalizado');
+  assert.equal(r.data.status, 'entregado');
   assert.equal(r.data.received_by, 'Laura Gómez');
-  assert.equal(r.data.km, 900);
-  assert.equal(r.data.km_per_liter, 7.5);
+  assert.equal(r.data.km_delivery, 900);
+
+  // Al llegar a su domicilio o base: odómetro y combustible otra vez.
+  r = await driver('POST', `/trips/${tripId}/return`, odometerForm(101065));
+  assert.equal(r.status, 400, 'el regreso pide la foto del combustible');
+  r = await driver('POST', `/trips/${tripId}/return`, odoFuelForm(100900, 0.5));
+  assert.equal(r.status, 400, 'el odómetro al regresar no puede ser menor al de la entrega');
+  r = await driver('POST', `/trips/${tripId}/return`, odoFuelForm(101065, 1.5));
+  assert.equal(r.status, 400, 'nivel de combustible inválido');
+  r = await driver('POST', `/trips/${tripId}/return`, odoFuelForm(101065, 0.5));
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.status, 'finalizado');
+  assert.equal(r.data.km_return, 115);
+  assert.equal(r.data.km, 1015, 'recorrido completo: de la salida al regreso');
+  assert.equal(r.data.fuel_level_liters, 25, '(3/4 − 1/2) × 100 L');
+  assert.equal(r.data.fuel_used, 145, '120 L cargados + 25 L que bajó la aguja');
+  assert.equal(r.data.km_per_liter, 7);
 
   // Fotos: el dueño del viaje y el admin sí, otro chofer no.
   assert.equal((await fetch(`${base}/photos/${startPhoto}`)).status, 401);
@@ -176,13 +203,13 @@ test('flujo completo de un viaje', async () => {
   // Reporte
   r = await admin('GET', '/reports/fuel');
   assert.equal(r.data.trips.length, 1);
-  assert.equal(r.data.byVehicle[0].km_per_liter, 7.5);
+  assert.equal(r.data.byVehicle[0].km_per_liter, 7);
   assert.equal(r.data.byDriver[0].label, 'Juan Chofer');
 
   r = await admin('GET', `/trips/${tripId}`);
   assert.deepEqual(
     r.data.events.map((e) => e.type),
-    ['creado', 'iniciado', 'cargado', 'en_ruta', 'combustible', 'llegada', 'finalizado']
+    ['creado', 'iniciado', 'cargado', 'en_ruta', 'combustible', 'llegada', 'entregado', 'finalizado']
   );
   assert.deepEqual(
     r.data.photos.map((p) => p.kind),
@@ -190,7 +217,8 @@ test('flujo completo de un viaje', async () => {
     'fotos de cada etapa guardadas en la plataforma'
   );
   const vehicles = (await admin('GET', '/vehicles')).data;
-  assert.equal(vehicles[0].last_odometer, 100950);
+  assert.equal(vehicles[0].last_odometer, 101065);
+  assert.equal(vehicles[0].tank_liters, 100);
 });
 
 test('reasignar y cancelar', async () => {
@@ -453,8 +481,9 @@ test('perfiles: superadministrador, personal de AN, choferes y clientes', async 
 
   const driver = client();
   await driver('POST', '/login', { email: 'juan@example.com', password: 'chofer123' });
-  r = await driver('POST', `/trips/${tripId}/start`, odometerForm(101000));
+  r = await driver('POST', `/trips/${tripId}/start`, odoFuelForm(101100, 1));
   const odoPhoto = r.data.odo_start_photo;
+  const fuelPhoto = r.data.fuel_start_photo;
   await driver('POST', `/trips/${tripId}/loaded`, {});
   r = await driver('POST', `/trips/${tripId}/depart`, photoForm());
   assert.equal(r.data.status, 'en_ruta');
@@ -472,6 +501,8 @@ test('perfiles: superadministrador, personal de AN, choferes y clientes', async 
   assert.equal(r.status, 200, 've la foto de la carga');
   r = await cli('GET', `/photos/${odoPhoto}`);
   assert.equal(r.status, 404, 'no ve la foto del odómetro');
+  r = await cli('GET', `/photos/${fuelPhoto}`);
+  assert.equal(r.status, 404, 'no ve la foto del combustible');
   r = await cli('POST', `/trips/${tripId}/arrive`, photoForm());
   assert.equal(r.status, 403, 'el cliente no mueve el viaje');
   r = await cli('GET', '/users');
