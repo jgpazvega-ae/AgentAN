@@ -95,3 +95,30 @@ h3 { font-size: 1.1rem; }
 .contact { list-style: none; padding: 0; margin: 0; }
 .contact li { margin: 6px 0; }
 .copy { border-top: 1px solid rgb(255 255 255 / .12); margin-top: 32px; padding-top: 16px; font-size: .85rem; }
+
+/* Cotizador */
+.muted-text { color: var(--muted); }
+.hidden { display: none !important; }
+.quote-grid { margin-top: 20px; }
+.calc { border-top-color: var(--navy); }
+.calc label { display: block; font-size: .85rem; font-weight: 700; color: var(--navy); margin: 14px 0 6px; }
+.calc select, .calc input { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid #cfd6e2; border-radius: 10px; background: #fff; color: var(--ink); }
+.seg { display: flex; background: var(--soft); border-radius: 12px; padding: 4px; gap: 4px; }
+.seg button { flex: 1; border: 0; background: none; font: inherit; font-weight: 700; color: var(--muted); padding: 10px; border-radius: 9px; cursor: pointer; }
+.seg button.active { background: var(--navy); color: #fff; }
+.vehicles { display: grid; gap: 8px; }
+.vehicles button { text-align: left; font: inherit; border: 2px solid var(--line); background: #fff; border-radius: 12px; padding: 10px 12px; cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 0 8px; }
+.vehicles button b { color: var(--navy); }
+.vehicles button span { color: var(--muted); font-size: .85rem; grid-column: 1; }
+.vehicles button .rate { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--green-dark); font-weight: 700; }
+.vehicles button.active { border-color: var(--green); background: #f1f9f4; }
+.estimate { margin-top: 16px; background: var(--navy); color: #fff; border-radius: 14px; padding: 16px; min-height: 92px; }
+.est-label { font-size: .85rem; opacity: .8; }
+.est-total { font-size: 2rem; font-weight: 800; }
+.est-total small { font-size: .9rem; font-weight: 600; opacity: .8; }
+.est-detail { font-size: .85rem; opacity: .85; }
+.est-empty, .est-special { font-size: .95rem; }
+.est-empty small { opacity: .8; }
+.small-print { margin-top: 12px; font-size: .85rem; color: var(--muted); }
+.small-print summary { cursor: pointer; font-weight: 600; color: var(--navy); }
+.form h3 { margin-top: 0; }

@@ -286,3 +286,39 @@ test('página pública, datos de la empresa y cotizaciones', async () => {
   r = await admin('PUT', `/quotes/${r.data[0].id}`, { status: 'atendida' });
   assert.equal(r.status, 200);
 });
+
+test('tarifas del cotizador y versión para GitHub Pages', async () => {
+  const { DEFAULT_PRICING, estimate } = require('../src/pricing');
+  // Base de $1,500 dentro de 40 km; después, km adicionales por unidad.
+  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 30 }).total, 1500);
+  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 171 }).total, 4900);
+  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 'van', km: 335 }).total, 6800);
+  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 'grande', km: 690 }), null, 'unidad grande: cotización especial');
+
+  const admin = client();
+  await admin('POST', '/login', { email: 'dueno@example.com', password: 'secreto123' });
+  let r = await admin('PUT', '/pricing', { included_km: 40, vehicles: { t35: { base: 1800, per_km: 28 }, van: { base: 1500, per_km: 18, enabled: false } } });
+  assert.equal(r.status, 200);
+  const pub = (await fetch(`${base}/pricing`).then((x) => x.json()));
+  const vehicles = pub.services.flatMap((s) => s.vehicles);
+  assert.equal(vehicles.find((v) => v.id === 't35').base, 1800);
+  assert.ok(!vehicles.some((v) => v.id === 'van'), 'la unidad desactivada no se muestra al público');
+  const html = await (await fetch(base.replace('/api', '/'))).text();
+  assert.match(html, /"per_km":28/);
+
+  const visitor = client();
+  r = await visitor('POST', '/quotes', { name: 'Con estimado', phone: '4420000000', service: 'Flete', vehicle: 'Camioneta 3.5 toneladas', km: 171, estimate: 5400 });
+  assert.equal(r.status, 201);
+  const q = (await admin('GET', '/quotes')).data[0];
+  assert.equal(q.estimate, 5400);
+  assert.equal(q.vehicle, 'Camioneta 3.5 toneladas');
+
+  // Versión estática
+  const { execFileSync } = require('node:child_process');
+  execFileSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'build-pages.js')]);
+  const out = path.join(__dirname, '..', '_site');
+  const page = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
+  assert.doesNotMatch(page, /(href|src)="\/[^/]/, 'solo rutas relativas');
+  assert.match(page, /"static":true/);
+  for (const f of ['css/site.css', 'js/cotizador.js', 'img/logo.png', 'login.html']) assert.ok(fs.existsSync(path.join(out, f)), f);
+});

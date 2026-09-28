@@ -139,6 +139,23 @@
         <div class="msg"></div>
         <div class="dialog-actions"><a class="btn" href="/" target="_blank">Ver página</a><button class="btn-primary">Guardar</button></div>
       </form>
+
+      <form id="pricing-form" class="card narrow" style="margin:16px auto 0">
+        <h2>Tarifas del cotizador</h2>
+        <p class="muted small">Precio = tarifa base (incluye los primeros km desde <span id="pricing-origin"></span>) + km adicionales × tarifa por km. Distancia por carretera, solo ida. Sin casetas ni IVA. Los clientes ven el precio estimado en la página.</p>
+        <label>Km incluidos en la tarifa base</label>
+        <input name="included_km" type="number" min="0" max="500" step="1" required style="max-width:140px">
+        <div class="table-wrap" style="margin-top:10px">
+          <table class="list">
+            <thead><tr><th>Mostrar</th><th>Unidad</th><th class="num">Base $</th><th class="num">$ por km adicional</th></tr></thead>
+            <tbody id="pricing-body"></tbody>
+          </table>
+        </div>
+        <h3 style="margin-top:14px">Ejemplos con estas tarifas</h3>
+        <div class="table-wrap" id="pricing-examples"></div>
+        <div class="msg"></div>
+        <div class="dialog-actions"><button class="btn-primary">Guardar tarifas</button></div>
+      </form>
     </section>
   </main>
 

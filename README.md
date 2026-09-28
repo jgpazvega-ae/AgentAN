@@ -24,6 +24,27 @@ Y para que el administrador:
 - Reciba una notificación cuando un chofer inicia, carga, sale o termina un viaje.
 - Genere **recibos de pago** en PDF: pago semanal por destajo (semana **CW##**) y **bonos** con descripción.
 
+## Cotizador y tarifas
+
+La página pública calcula un **precio estimado** según el servicio (**Flete** o **Viaje ejecutivo**), la unidad y el destino:
+
+```
+precio = tarifa base (incluye 40 km desde el centro de Querétaro) + km adicionales × tarifa por km
+```
+
+La distancia es por carretera y solo de ida (la tarifa por km ya considera el regreso). No incluye casetas, maniobras, esperas, viáticos ni IVA. Las unidades grandes (rabón/tórton) se muestran como **cotización especial**.
+
+Propuesta inicial (se ajusta en el panel → **Empresa → Tarifas del cotizador**, con una tabla de ejemplos que se recalcula al escribir):
+
+| Unidad | Base (hasta 40 km) | $ por km adicional | León (~171 km) | Puebla (~335 km) |
+|---|---:|---:|---:|---:|
+| Van de carga | $1,500 | $18 | $3,850 | $6,800 |
+| Camioneta 3.5 t | $1,500 | $26 | $4,900 | $9,150 |
+| Chevrolet Traverse / Toyota Sienna | $1,500 | $15 | $3,450 | $5,950 |
+| Unidad grande | cotización especial | | | |
+
+La lista de destinos con sus distancias aproximadas está en `src/pricing.js`. Si el cliente elige “Otro destino”, puede escribir los km. Cada solicitud guarda la unidad y el precio estimado que vio el cliente.
+
 ## Recibos de pago
 
 En la pestaña **Pagos** del administrador hay dos secciones:
@@ -104,6 +125,17 @@ Cualquier servidor SMTP sirve. Con **Gmail**: activa la verificación en dos pas
 - **Android**: al abrir la página, en *Menú → Instalar en el celular* (o en el menú de Chrome → *Instalar app*). Luego *Activar notificaciones*.
 - **iPhone (iOS 16.4 o más reciente)**: en Safari toca *Compartir → Agregar a pantalla de inicio*, abre la app desde ese ícono y toca *Activar notificaciones*. Apple no permite notificaciones si la página no está instalada.
 - Si un chofer no activa las notificaciones, de todos modos recibe el **correo**.
+
+## Vista previa en GitHub Pages
+
+Mientras se publica en Neubox, la **página de la empresa** (con el cotizador) se puede ver gratis en GitHub Pages. Es una versión estática: no hay inicio de sesión real y el formulario envía la solicitud por **WhatsApp** (o correo si no hay WhatsApp).
+
+1. Edita `pages/sitio.json` en GitHub (ícono del lápiz) y pon al menos el **WhatsApp** a 10 dígitos.
+2. En el repositorio: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+3. Cada cambio que llegue a `main` publica la página (o ejecútalo a mano en **Actions → Página en GitHub Pages → Run workflow**).
+4. La dirección queda como `https://<usuario>.github.io/<repositorio>/`.
+
+GitHub Pages es gratis en repositorios públicos; en repositorios privados requiere un plan de pago de GitHub. Para generarla localmente: `node scripts/build-pages.js` (queda en `_site/`).
 
 ## Publicarla en Neubox
 

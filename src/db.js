@@ -161,6 +161,16 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `);
 
+// Columnas agregadas después de la primera versión (bases de datos existentes).
+function addColumn(table, column, type) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
+addColumn('quote_requests', 'service', 'TEXT');
+addColumn('quote_requests', 'vehicle', 'TEXT');
+addColumn('quote_requests', 'km', 'REAL');
+addColumn('quote_requests', 'estimate', 'REAL');
+
 // Ayudantes cortos para no repetir prepare() en todos lados.
 function get(sql, ...params) {
   return db.prepare(sql).get(...params);

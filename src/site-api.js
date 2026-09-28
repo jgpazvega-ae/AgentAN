@@ -4,7 +4,7 @@ const { all, get, run } = require('./db');
 const auth = require('./auth');
 const notify = require('./notify');
 const site = require('./site');
-const { HttpError, bad, h, str } = require('./http');
+const { HttpError, bad, h, str, num } = require('./http');
 
 const router = express.Router();
 
@@ -47,21 +47,28 @@ router.post(
       service_date: str(req.body.service_date, 10),
       cargo: str(req.body.cargo, 500),
       message: str(req.body.message, 2000),
+      service: str(req.body.service, 60),
+      vehicle: str(req.body.vehicle, 80),
+      km: num(req.body.km),
+      estimate: num(req.body.estimate),
     };
     if (!q.name) throw bad('Escribe tu nombre.');
     if (!q.phone && !q.email) throw bad('Déjanos un teléfono o correo para contactarte.');
     if (q.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(q.email)) throw bad('El correo no es válido.');
     const id = Number(
       run(
-        `INSERT INTO quote_requests (name, company, phone, email, origin, destination, service_date, cargo, message)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        q.name, q.company, q.phone, q.email, q.origin, q.destination, q.service_date, q.cargo, q.message
+        `INSERT INTO quote_requests (name, company, phone, email, origin, destination, service_date, cargo, message, service, vehicle, km, estimate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        q.name, q.company, q.phone, q.email, q.origin, q.destination, q.service_date, q.cargo, q.message, q.service, q.vehicle, q.km, q.estimate
       ).lastInsertRowid
     );
 
     const s = site.getSite();
     const to = s.quotes_email || s.email || all("SELECT email FROM users WHERE role = 'admin' AND active = 1").map((u) => u.email).join(',');
     const lines = [
+      ['Servicio', q.service],
+      ['Unidad', q.vehicle],
+      ['Estimado mostrado al cliente', q.estimate != null ? `$${q.estimate.toLocaleString('es-MX')} + IVA (${q.km} km)` : null],
       ['Nombre', q.name],
       ['Empresa', q.company],
       ['Teléfono', q.phone],
@@ -84,6 +91,22 @@ router.post(
     }
     notify.notifyAdmins(`Nueva cotización: ${q.name}`, [q.origin, q.destination].filter(Boolean).join(' → ') || q.cargo || '', '/admin.html#cotizaciones');
     res.status(201).json({ ok: true });
+  })
+);
+
+// Tarifas del cotizador (el administrador las ajusta en el panel → Empresa).
+router.get('/pricing', (req, res) => res.json(site.getPricing({ keepDisabled: req.user?.role === 'admin' })));
+router.put(
+  '/pricing',
+  auth.requireAdmin,
+  h((req, res) => {
+    const km = num(req.body.included_km);
+    if (km == null || km < 0 || km > 500) throw bad('Los km incluidos en la tarifa base no son válidos.');
+    for (const [id, v] of Object.entries(req.body.vehicles || {})) {
+      if (!(num(v.base) >= 0) || !(num(v.per_km) >= 0)) throw bad(`Revisa la tarifa de ${id}.`);
+    }
+    site.updatePricing({ included_km: km, vehicles: req.body.vehicles });
+    res.json(site.getPricing({ keepDisabled: true }));
   })
 );
 

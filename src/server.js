@@ -21,29 +21,11 @@ app.use(auth.loadUser);
 app.use('/api', api);
 
 // Página pública de la empresa (se arma con los datos del panel → Empresa).
-const fs = require('node:fs');
 const site = require('./site');
-const homeTemplate = fs.readFileSync(path.join(__dirname, 'views', 'home.html'), 'utf8');
-const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-function renderHome() {
-  const s = site.publicSite();
-  const digits = (v) => String(v || '').replace(/\D/g, '');
-  const wa = digits(s.whatsapp);
-  const values = {
-    ...s,
-    appUrl: config.appUrl,
-    year: new Date().getFullYear(),
-    description: s.about ? s.about.slice(0, 160) : `${s.name}: ${s.tagline}. Solicita tu cotización de flete.`,
-    phoneHref: s.phone ? `+${digits(s.phone).length === 10 ? `52${digits(s.phone)}` : digits(s.phone)}` : '',
-    whatsappUrl: wa ? `https://wa.me/${wa.length === 10 ? `52${wa}` : wa}` : '',
-  };
-  return homeTemplate
-    .replace(/<!--if:(\w+)-->([\s\S]*?)<!--endif:\1-->/g, (_, key, block) => (values[key] ? block : ''))
-    .replace(/\{\{(\w+)\}\}/g, (_, key) => escapeHtml(values[key]));
-}
+const { renderHome } = require('./home');
 app.get(['/', '/index.html'], (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
-  res.type('html').send(renderHome());
+  res.type('html').send(renderHome(site.publicSite(), site.getPricing(), { appUrl: config.appUrl }));
 });
 
 app.use(
