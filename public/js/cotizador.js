@@ -100,7 +100,10 @@
     if (vehicle.special || km == null) return null;
     const extraKm = Math.max(0, km - P.included_km);
     const step = P.round_to || 1;
-    return { total: Math.round((vehicle.base + extraKm * vehicle.per_km) / step) * step, extraKm };
+    // Viáticos del chofer si el viaje obliga a pernoctar (misma regla que src/pricing.js).
+    const nights = P.overnight_km > 0 ? Math.floor(km / P.overnight_km) : 0;
+    const viaticos = nights * (P.overnight_cost || 0);
+    return { total: Math.round((vehicle.base + extraKm * vehicle.per_km) / step) * step + viaticos, extraKm, nights, viaticos };
   }
 
   let current = null;
@@ -141,7 +144,8 @@
       box.innerHTML = `
         <div class="est-label">Precio estimado · ${esc(vehicle.label)}</div>
         <div class="est-detail">${list !== est.total ? 'Tarifa con descuento: ' : ''}Base ${money(vehicle.base)} (hasta ${P.included_km} km)${
-          est.extraKm ? ` + ${est.extraKm} km × ${money(vehicle.per_km)}` : ''
+          (est.extraKm ? ` + ${est.extraKm} km × ${money(vehicle.per_km)}` : '') +
+          (est.nights ? ` + viáticos del chofer (${est.nights} ${est.nights === 1 ? 'noche' : 'noches'} × ${money(P.overnight_cost)})` : '')
         }</div>
         <table class="est-table">
           ${
@@ -163,7 +167,7 @@
     }
   }
 
-  $('calc-rule').textContent = `Tarifa base por unidad que incluye hasta ${P.included_km} km desde ${P.origin}. Cada km adicional (distancia por carretera, solo ida) se cobra según la unidad; la tarifa por km ya considera el regreso. Impuestos: IVA ${P.taxes.iva}%. Si eres empresa (persona moral) retienes ${P.taxes.ret_iva}% de IVA en fletes y ${P.taxes.ret_isr}% de ISR, según la ley.`;
+  $('calc-rule').textContent = `Tarifa base por unidad que incluye hasta ${P.included_km} km desde ${P.origin}. Cada km adicional (distancia por carretera, solo ida) se cobra según la unidad; la tarifa por km ya considera el regreso. En viajes largos se suman viáticos del chofer (${money(P.overnight_cost)} por noche, una noche por cada ${P.overnight_km} km). Impuestos: IVA ${P.taxes.iva}%. Si eres empresa (persona moral) retienes ${P.taxes.ret_iva}% de IVA en fletes y ${P.taxes.ret_isr}% de ISR, según la ley.`;
   $('calc-extras').innerHTML = (P.extras || []).map((x) => `<li>${esc(x)}</li>`).join('');
   render();
 
@@ -233,4 +237,53 @@
       btn.disabled = false;
     }
   });
+
+  // ---------- ¿Cuánto pagaré? (importe cotizado sin impuestos → total) ----------
+  const pay = { service: 'flete', client: 'fisica' };
+  function payBreakdown(subtotal) {
+    const t = P.taxes;
+    const rule = t.rules[pay.client];
+    const lines = [];
+    if (rule.iva) lines.push({ label: `IVA ${t.iva}%`, amount: round2((subtotal * t.iva) / 100) });
+    if (rule.ret_iva && t.ret_iva_services.includes(pay.service)) lines.push({ label: `Retención de IVA ${t.ret_iva}%`, amount: -round2((subtotal * t.ret_iva) / 100) });
+    if (rule.ret_isr) lines.push({ label: `Retención de ISR ${t.ret_isr}%`, amount: -round2((subtotal * t.ret_isr) / 100) });
+    return { lines, total: round2(subtotal + lines.reduce((sum, l) => sum + l.amount, 0)) };
+  }
+  function renderPay() {
+    for (const [id, key] of [['pay-svc', 'service'], ['pay-client', 'client']]) {
+      [...$(id).children].forEach((b) => b.classList.toggle('active', b.dataset.v === pay[key]));
+    }
+    const amount = Number($('pay-amount').value);
+    const box = $('pay-result');
+    if (!$('pay-amount').value || !(amount > 0)) {
+      box.innerHTML = '<div class="est-empty">Escribe el importe de tu cotización para ver el total a pagar.</div>';
+      return;
+    }
+    const subtotal = round2(amount);
+    const b = payBreakdown(subtotal);
+    const iva = b.lines.find((l) => l.amount > 0);
+    const retentions = b.lines.filter((l) => l.amount < 0);
+    const withheld = -retentions.reduce((sum, l) => sum + l.amount, 0);
+    box.innerHTML = `
+      <table class="est-table">
+        <tr><td>Importe sin impuestos</td><td>${money2(subtotal)}</td></tr>
+        ${b.lines.map((l) => `<tr class="${l.amount < 0 ? 'minus' : ''}"><td>${esc(l.label)}</td><td>${money2(l.amount)}</td></tr>`).join('')}
+        <tr class="grand"><td>Total a pagar</td><td>${money2(b.total)} <small>MXN</small></td></tr>
+      </table>
+      ${
+        retentions.length
+          ? `<div class="est-detail">Tu factura será por ${money2(subtotal + (iva ? iva.amount : 0))} (importe + IVA). Pagas ${money2(b.total)} y tu empresa entera ${money2(withheld)} de retenciones al SAT.</div>`
+          : ''
+      }`;
+  }
+  for (const [id, key] of [['pay-svc', 'service'], ['pay-client', 'client']]) {
+    $(id).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-v]');
+      if (!b) return;
+      pay[key] = b.dataset.v;
+      renderPay();
+    });
+  }
+  $('pay-amount').addEventListener('input', renderPay);
+  renderPay();
 })();

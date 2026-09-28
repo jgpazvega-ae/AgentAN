@@ -86,6 +86,8 @@ async function loadPricing() {
   const form = $('#pricing-form');
   form.included_km.value = pricing.included_km;
   form.cash_discount.value = pricing.cash_discount ?? 0;
+  form.overnight_km.value = pricing.overnight_km ?? 0;
+  form.overnight_cost.value = pricing.overnight_cost ?? 0;
   $('#pricing-origin').textContent = pricing.origin;
   $('#pricing-body').innerHTML = pricing.services
     .map(
@@ -139,6 +141,8 @@ function readPricingForm() {
   return {
     included_km: Number($('#pricing-form').included_km.value),
     cash_discount: Number($('#pricing-form').cash_discount.value || 0),
+    overnight_km: Number($('#pricing-form').overnight_km.value || 0),
+    overnight_cost: Number($('#pricing-form').overnight_cost.value || 0),
     vehicles,
     taxes: readTaxes(),
   };
@@ -151,7 +155,8 @@ function renderPricingExamples() {
   const price = (v, km) => {
     const t = input.vehicles[v.id];
     const raw = t.base + Math.max(0, km - input.included_km) * t.per_km;
-    return Math.round(raw / (pricing.round_to || 1)) * (pricing.round_to || 1);
+    const nights = input.overnight_km > 0 ? Math.floor(km / input.overnight_km) : 0;
+    return Math.round(raw / (pricing.round_to || 1)) * (pricing.round_to || 1) + nights * input.overnight_cost;
   };
   const d = input.cash_discount / 100;
   const list = (cash) => (d ? Math.ceil(cash / (1 - d) / 10) * 10 : cash);
@@ -161,7 +166,7 @@ function renderPricingExamples() {
   };
   $('#pricing-examples').innerHTML = `<table class="list"><thead><tr><th>Destino</th>${vehicles.map((v) => `<th class="num">${esc(v.label)}</th>`).join('')}</tr></thead><tbody>
     ${cities.map((c) => `<tr><td>${esc(c.name)} <span class="muted small">~${c.km} km</span></td>${vehicles.map((v) => `<td class="num">${cell(v, c.km)}</td>`).join('')}</tr>`).join('')}
-  </tbody></table>${d ? '<p class="muted small">Arriba: precio de lista (tarjeta). Abajo: con descuento por efectivo o transferencia. Sin impuestos.</p>' : ''}${taxExample(input)}`;
+  </tbody></table>${d ? '<p class="muted small">Arriba: precio de lista (tarjeta). Abajo: con descuento por efectivo o transferencia. Incluye viáticos si el viaje requiere pernoctar; sin impuestos ni casetas.</p>' : ''}${taxExample(input)}`;
 }
 
 // Ejemplo del desglose de impuestos con el flete a León en 3.5 t (o la primera unidad activa).
