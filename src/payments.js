@@ -23,7 +23,7 @@ function loadPayment(id) {
 
 function paymentForUser(req) {
   const p = loadPayment(Number(req.params.id));
-  if (!p || (req.user.role !== 'admin' && p.driver_id !== req.user.id)) throw new HttpError(404, 'El recibo no existe.');
+  if (!p || (!auth.isStaff(req.user) && p.driver_id !== req.user.id)) throw new HttpError(404, 'El recibo no existe.');
   return p;
 }
 
@@ -92,7 +92,7 @@ router.get(
   h((req, res) => {
     const where = [];
     const params = [];
-    if (req.user.role !== 'admin') {
+    if (!auth.isStaff(req.user)) {
       where.push('p.driver_id = ?');
       params.push(req.user.id);
     } else if (req.query.driver_id) {

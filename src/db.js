@@ -11,17 +11,92 @@ fs.mkdirSync(config.uploadsDir, { recursive: true });
 const db = new DatabaseSync(path.join(config.dataDir, 'fletes.db'));
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
+// Roles: superadmin (dueño, correo maestro), admin (personal de AN),
+// driver (chofer) y client (cliente que sigue sus viajes).
+const USERS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
   phone TEXT,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin', 'driver')),
+  role TEXT NOT NULL CHECK (role IN ('superadmin', 'admin', 'driver', 'client')),
   active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  company TEXT
+)`;
+
+// Estados del viaje:
+// asignado → en_recoleccion → cargado → en_ruta → en_destino → finalizado (o cancelado)
+const TRIPS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  driver_id INTEGER REFERENCES users(id),
+  vehicle_id INTEGER REFERENCES vehicles(id),
+  client TEXT,
+  cargo TEXT,
+  notes TEXT,
+  pickup_address TEXT NOT NULL,
+  pickup_lat REAL,
+  pickup_lng REAL,
+  pickup_at TEXT NOT NULL,
+  dest_address TEXT NOT NULL,
+  dest_lat REAL,
+  dest_lng REAL,
+  delivery_at TEXT,
+  status TEXT NOT NULL DEFAULT 'asignado'
+    CHECK (status IN ('asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino', 'finalizado', 'cancelado')),
+  started_at TEXT,
+  odo_start REAL,
+  odo_start_photo TEXT,
+  loaded_at TEXT,
+  departed_at TEXT,
+  finished_at TEXT,
+  odo_end REAL,
+  odo_end_photo TEXT,
+  cancelled_at TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  client_id INTEGER REFERENCES users(id),
+  arrived_at TEXT,
+  received_by TEXT
+)`;
+
+// Bases de datos creadas con la versión anterior: se reconstruyen las tablas
+// cuyas reglas (CHECK) cambiaron, conservando todos los datos.
+function tableSql(name) {
+  return db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(name)?.sql || '';
+}
+function rebuildTable(name, createSql) {
+  const oldCols = db.prepare(`PRAGMA table_info(${name})`).all().map((c) => c.name);
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    db.exec(`DROP TABLE IF EXISTS ${name}_new`);
+    db.exec(createSql(`${name}_new`));
+    const newCols = db.prepare(`PRAGMA table_info(${name}_new)`).all().map((c) => c.name);
+    const cols = oldCols.filter((c) => newCols.includes(c)).join(', ');
+    db.exec(`INSERT INTO ${name}_new (${cols}) SELECT ${cols} FROM ${name}`);
+    db.exec(`DROP TABLE ${name}`);
+    db.exec(`ALTER TABLE ${name}_new RENAME TO ${name}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+if (tableSql('users') && !tableSql('users').includes('superadmin')) {
+  rebuildTable('users', USERS_SQL);
+  // El primer administrador (quien configuró la plataforma) pasa a ser el superadministrador.
+  db.exec("UPDATE users SET role = 'superadmin' WHERE id = (SELECT MIN(id) FROM users WHERE role = 'admin')");
+}
+if (tableSql('trips') && !tableSql('trips').includes('en_destino')) {
+  rebuildTable('trips', TRIPS_SQL);
+}
+
+db.exec(`${USERS_SQL('users')};
+${TRIPS_SQL('trips')};
 
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
@@ -39,38 +114,24 @@ CREATE TABLE IF NOT EXISTS vehicles (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS trips (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  driver_id INTEGER REFERENCES users(id),
-  vehicle_id INTEGER REFERENCES vehicles(id),
-  client TEXT,
-  cargo TEXT,
-  notes TEXT,
-  pickup_address TEXT NOT NULL,
-  pickup_lat REAL,
-  pickup_lng REAL,
-  pickup_at TEXT NOT NULL,
-  dest_address TEXT NOT NULL,
-  dest_lat REAL,
-  dest_lng REAL,
-  delivery_at TEXT,
-  status TEXT NOT NULL DEFAULT 'asignado'
-    CHECK (status IN ('asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'finalizado', 'cancelado')),
-  started_at TEXT,
-  odo_start REAL,
-  odo_start_photo TEXT,
-  loaded_at TEXT,
-  departed_at TEXT,
-  finished_at TEXT,
-  odo_end REAL,
-  odo_end_photo TEXT,
-  cancelled_at TEXT,
-  created_by INTEGER REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
 CREATE INDEX IF NOT EXISTS idx_trips_driver ON trips(driver_id, status);
 CREATE INDEX IF NOT EXISTS idx_trips_pickup ON trips(pickup_at);
+CREATE INDEX IF NOT EXISTS idx_trips_client ON trips(client_id);
+
+-- Fotos de cada etapa del viaje (el odómetro se guarda en la tabla trips):
+-- carga (antes de salir a destino), llegada (al punto de entrega),
+-- entrega (prueba de entrega) y firma (firma de quien recibe).
+CREATE TABLE IF NOT EXISTS trip_photos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('carga', 'llegada', 'entrega', 'firma')),
+  file TEXT NOT NULL,
+  user_id INTEGER REFERENCES users(id),
+  lat REAL,
+  lng REAL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_trip_photos_trip ON trip_photos(trip_id);
 
 CREATE TABLE IF NOT EXISTS trip_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

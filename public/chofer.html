@@ -45,23 +45,16 @@
     </div>
   </dialog>
 
-  <!-- Foto del odómetro -->
-  <dialog id="odo-dialog">
-    <form id="odo-form">
-      <h2 id="odo-title">Foto del odómetro</h2>
-      <p class="muted small" id="odo-help"></p>
-      <label class="photo-input" id="odo-photo-label">
-        <span id="odo-photo-text">📷 Toca para tomar la foto del odómetro</span>
-        <img id="odo-preview" class="hidden" alt="Vista previa">
-        <input type="file" name="photo" accept="image/*" capture="environment">
-      </label>
-      <label for="odo-reading">Lectura del odómetro (km)</label>
-      <input id="odo-reading" name="odometer" type="number" inputmode="decimal" step="0.1" min="0" required placeholder="Ej. 125430">
-      <p class="muted small" id="odo-hint"></p>
-      <div id="odo-msg"></div>
+  <!-- Pasos del viaje con fotos -->
+  <dialog id="step-dialog">
+    <form id="step-form" novalidate>
+      <h2 id="step-title"></h2>
+      <p class="muted small" id="step-help"></p>
+      <div id="step-fields"></div>
+      <div id="step-msg"></div>
       <div class="dialog-actions">
         <button type="button" data-close>Cancelar</button>
-        <button class="btn-primary" id="odo-submit">Confirmar</button>
+        <button class="btn-primary" id="step-submit">Confirmar</button>
       </div>
     </form>
   </dialog>

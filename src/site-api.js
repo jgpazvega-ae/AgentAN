@@ -8,11 +8,11 @@ const { HttpError, bad, h, str, num } = require('./http');
 
 const router = express.Router();
 
-router.get('/site', (req, res) => res.json(req.user?.role === 'admin' ? site.getSite() : site.publicSite()));
+router.get('/site', (req, res) => res.json(auth.isStaff(req.user) ? site.getSite() : site.publicSite()));
 
 router.put(
   '/site',
-  auth.requireAdmin,
+  auth.requireSuper,
   h((req, res) => {
     const email = str(req.body.quotes_email, 200);
     if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw bad('El correo para cotizaciones no es válido.');
@@ -69,7 +69,7 @@ router.post(
     );
 
     const s = site.getSite();
-    const to = s.quotes_email || s.email || all("SELECT email FROM users WHERE role = 'admin' AND active = 1").map((u) => u.email).join(',');
+    const to = s.quotes_email || s.email || all("SELECT email FROM users WHERE role IN ('superadmin', 'admin') AND active = 1").map((u) => u.email).join(',');
     const lines = [
       ['Servicio', q.service],
       ['Unidad', q.vehicle],
@@ -103,10 +103,10 @@ router.post(
 );
 
 // Tarifas del cotizador (el administrador las ajusta en el panel → Empresa).
-router.get('/pricing', (req, res) => res.json(site.getPricing({ keepDisabled: req.user?.role === 'admin' })));
+router.get('/pricing', (req, res) => res.json(site.getPricing({ keepDisabled: auth.isStaff(req.user) })));
 router.put(
   '/pricing',
-  auth.requireAdmin,
+  auth.requireSuper,
   h((req, res) => {
     const km = num(req.body.included_km);
     if (km == null || km < 0 || km > 500) throw bad('Los km incluidos en la tarifa base no son válidos.');

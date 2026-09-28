@@ -1,11 +1,18 @@
 // Funciones compartidas por las páginas del chofer y del administrador.
 
+const ROLE_LABEL = { superadmin: 'Superadministrador', admin: 'Personal de AN', driver: 'Chofer', client: 'Cliente' };
+const isStaffRole = (role) => role === 'admin' || role === 'superadmin';
+
+// Tipos de foto de las etapas del viaje.
+const PHOTO_KIND = { carga: 'Carga antes de salir', llegada: 'Llegada al punto de entrega', entrega: 'Prueba de entrega', firma: 'Firma de quien recibe' };
+
 const STATUS = {
   asignado: { label: 'Asignado', step: 0 },
   en_recoleccion: { label: 'Rumbo a cargar / cargando', step: 1 },
   cargado: { label: 'Cargado, en espera de salir', step: 2 },
   en_ruta: { label: 'En ruta al destino', step: 3 },
-  finalizado: { label: 'Finalizado', step: 4 },
+  en_destino: { label: 'En el punto de entrega', step: 4 },
+  finalizado: { label: 'Entregado', step: 5 },
   cancelado: { label: 'Cancelado', step: -1 },
 };
 
@@ -97,7 +104,10 @@ async function shrinkPhoto(file, maxSide = 1600) {
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; // fondo blanco por si la imagen tiene transparencia (JPEG no la admite)
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     return await new Promise((resolve) => canvas.toBlob((b) => resolve(b || file), 'image/jpeg', 0.82));
   } catch {
     return file;

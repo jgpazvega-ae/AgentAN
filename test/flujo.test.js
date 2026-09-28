@@ -54,6 +54,20 @@ function odometerForm(reading) {
   fd.append('odometer', String(reading));
   return fd;
 }
+function photoForm(extra = {}) {
+  const fd = new FormData();
+  fd.append('photo', new Blob([JPEG], { type: 'image/jpeg' }), 'foto.jpg');
+  for (const [k, v] of Object.entries(extra)) fd.append(k, String(v));
+  return fd;
+}
+// Entrega: odómetro final + fotos de prueba de entrega + quién recibe (+ firma).
+function deliveryForm(reading, { pod = 1, receivedBy = 'Laura Gómez', signature = false } = {}) {
+  const fd = odometerForm(reading);
+  for (let i = 0; i < pod; i++) fd.append('pod', new Blob([JPEG], { type: 'image/jpeg' }), `entrega${i}.jpg`);
+  if (signature) fd.append('signature', new Blob([JPEG], { type: 'image/jpeg' }), 'firma.jpg');
+  fd.append('received_by', receivedBy);
+  return fd;
+}
 
 test('flujo completo de un viaje', async () => {
   const admin = client();
@@ -124,7 +138,9 @@ test('flujo completo de un viaje', async () => {
 
   r = await driver('POST', `/trips/${tripId}/loaded`, {});
   assert.equal(r.data.status, 'cargado');
-  r = await driver('POST', `/trips/${tripId}/depart`, { lat: 25.7, lng: -100.3 });
+  r = await driver('POST', `/trips/${tripId}/depart`, new FormData());
+  assert.equal(r.status, 400, 'salir a destino pide la foto de la carga');
+  r = await driver('POST', `/trips/${tripId}/depart`, photoForm({ lat: 25.7, lng: -100.3 }));
   assert.equal(r.data.status, 'en_ruta');
 
   const fuel = new FormData();
@@ -133,10 +149,22 @@ test('flujo completo de un viaje', async () => {
   r = await driver('POST', `/trips/${tripId}/fuel`, fuel);
   assert.equal(r.status, 201);
 
-  r = await driver('POST', `/trips/${tripId}/finish`, odometerForm(100000));
+  r = await driver('POST', `/trips/${tripId}/finish`, deliveryForm(100950));
+  assert.equal(r.status, 400, 'primero debe marcar la llegada');
+  r = await driver('POST', `/trips/${tripId}/arrive`, new FormData());
+  assert.equal(r.status, 400, 'la llegada pide foto');
+  r = await driver('POST', `/trips/${tripId}/arrive`, photoForm());
+  assert.equal(r.data.status, 'en_destino');
+
+  r = await driver('POST', `/trips/${tripId}/finish`, deliveryForm(100950, { pod: 0 }));
+  assert.equal(r.status, 400, 'la entrega pide foto de prueba de entrega');
+  r = await driver('POST', `/trips/${tripId}/finish`, deliveryForm(100950, { receivedBy: '' }));
+  assert.equal(r.status, 400, 'la entrega pide quién recibe');
+  r = await driver('POST', `/trips/${tripId}/finish`, deliveryForm(100000));
   assert.equal(r.status, 400, 'el odómetro final no puede ser menor al inicial');
-  r = await driver('POST', `/trips/${tripId}/finish`, odometerForm(100950));
+  r = await driver('POST', `/trips/${tripId}/finish`, deliveryForm(100950, { pod: 2, signature: true }));
   assert.equal(r.data.status, 'finalizado');
+  assert.equal(r.data.received_by, 'Laura Gómez');
   assert.equal(r.data.km, 900);
   assert.equal(r.data.km_per_liter, 7.5);
 
@@ -154,7 +182,12 @@ test('flujo completo de un viaje', async () => {
   r = await admin('GET', `/trips/${tripId}`);
   assert.deepEqual(
     r.data.events.map((e) => e.type),
-    ['creado', 'iniciado', 'cargado', 'en_ruta', 'combustible', 'finalizado']
+    ['creado', 'iniciado', 'cargado', 'en_ruta', 'combustible', 'llegada', 'finalizado']
+  );
+  assert.deepEqual(
+    r.data.photos.map((p) => p.kind),
+    ['carga', 'llegada', 'entrega', 'entrega', 'firma'],
+    'fotos de cada etapa guardadas en la plataforma'
   );
   const vehicles = (await admin('GET', '/vehicles')).data;
   assert.equal(vehicles[0].last_odometer, 100950);
@@ -377,4 +410,110 @@ test('impuestos del cotizador por tipo de cliente', async () => {
   assert.equal(q.total, 5426.75);
   assert.equal(q.payment_method, 'Transferencia');
   assert.equal(q.list_price, 5110);
+});
+
+test('perfiles: superadministrador, personal de AN, choferes y clientes', async () => {
+  const boss = client();
+  await boss('POST', '/login', { email: 'dueno@example.com', password: 'secreto123' });
+  assert.equal((await boss('GET', '/me')).data.role, 'superadmin', 'quien configuró la plataforma es el superadministrador');
+
+  // El superadministrador da de alta al personal de AN.
+  let r = await boss('POST', '/users', { name: 'Ana Oficina', email: 'ana@example.com', password: 'personal123', role: 'admin' });
+  assert.equal(r.status, 201);
+  const staff = client();
+  r = await staff('POST', '/login', { email: 'ana@example.com', password: 'personal123' });
+  assert.equal(r.data.home, '/admin.html');
+
+  // El personal da de alta choferes y clientes, pero no a más personal.
+  r = await staff('POST', '/users', { name: 'Otro', email: 'otro@example.com', password: 'personal123', role: 'admin' });
+  assert.equal(r.status, 403);
+  r = await staff('POST', '/users', { name: 'Carla Cliente', email: 'carla@example.com', password: 'cliente123', role: 'client', company: 'Abarrotes SA' });
+  assert.equal(r.status, 201);
+  const clientId = r.data.id;
+  const bossId = (await boss('GET', '/me')).data.id;
+  r = await staff('PUT', `/users/${bossId}`, { name: 'Cambio' });
+  assert.equal(r.status, 403, 'nadie modifica al superadministrador');
+  r = await boss('PUT', `/users/${bossId}`, { active: false });
+  assert.equal(r.status, 400, 'el superadministrador no se desactiva a sí mismo');
+  r = await boss('PUT', `/users/${bossId}`, { role: 'driver' });
+  assert.equal(r.status, 400);
+  r = await staff('PUT', '/site', { name: 'Otra empresa' });
+  assert.equal(r.status, 403, 'datos de la empresa: solo el superadministrador');
+  r = await staff('PUT', '/pricing', { included_km: 40, vehicles: {} });
+  assert.equal(r.status, 403, 'tarifas: solo el superadministrador');
+
+  // Viaje de un cliente.
+  const juan = (await boss('GET', '/users')).data.find((u) => u.email === 'juan@example.com');
+  r = await staff('POST', '/trips', { driver_id: juan.id, client_id: clientId, pickup_address: 'Bodega', dest_address: 'Tienda', pickup_at: '2026-10-10T09:00' });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const tripId = r.data.id;
+  assert.equal(r.data.client, 'Abarrotes SA', 'toma la empresa del cliente');
+  r = await staff('POST', '/trips', { driver_id: clientId, pickup_address: 'A', dest_address: 'B', pickup_at: '2026-10-10T09:00' });
+  assert.equal(r.status, 400, 'un cliente no puede ser chofer');
+
+  const driver = client();
+  await driver('POST', '/login', { email: 'juan@example.com', password: 'chofer123' });
+  r = await driver('POST', `/trips/${tripId}/start`, odometerForm(101000));
+  const odoPhoto = r.data.odo_start_photo;
+  await driver('POST', `/trips/${tripId}/loaded`, {});
+  r = await driver('POST', `/trips/${tripId}/depart`, photoForm());
+  assert.equal(r.data.status, 'en_ruta');
+
+  const cli = client();
+  r = await cli('POST', '/login', { email: 'carla@example.com', password: 'cliente123' });
+  assert.equal(r.data.home, '/cliente.html');
+  r = await cli('GET', '/trips');
+  assert.equal(r.data.length, 1, 'el cliente solo ve sus envíos');
+  assert.equal(r.data[0].status, 'en_ruta');
+  assert.equal(r.data[0].odo_start, undefined, 'sin datos internos (odómetro)');
+  assert.equal(r.data[0].notes, undefined);
+  assert.equal(r.data[0].photos[0].kind, 'carga');
+  r = await cli('GET', `/photos/${r.data[0].photos[0].file}`);
+  assert.equal(r.status, 200, 've la foto de la carga');
+  r = await cli('GET', `/photos/${odoPhoto}`);
+  assert.equal(r.status, 404, 'no ve la foto del odómetro');
+  r = await cli('POST', `/trips/${tripId}/arrive`, photoForm());
+  assert.equal(r.status, 403, 'el cliente no mueve el viaje');
+  r = await cli('GET', '/users');
+  assert.equal(r.status, 403);
+  r = await cli('GET', '/payments');
+  assert.equal(r.data.length, 0);
+});
+
+test('migración: una base de datos anterior conserva sus datos y el primer admin pasa a superadministrador', () => {
+  const { execFileSync } = require('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fletes-mig-'));
+  const { DatabaseSync } = require('node:sqlite');
+  const old = new DatabaseSync(path.join(dir, 'fletes.db'));
+  old.exec(`
+    CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE COLLATE NOCASE, phone TEXT,
+      password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('admin', 'driver')), active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE TABLE vehicles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, plate TEXT, fuel_type TEXT, last_odometer REAL,
+      active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT, driver_id INTEGER REFERENCES users(id), vehicle_id INTEGER REFERENCES vehicles(id),
+      client TEXT, cargo TEXT, notes TEXT, pickup_address TEXT NOT NULL, pickup_lat REAL, pickup_lng REAL, pickup_at TEXT NOT NULL,
+      dest_address TEXT NOT NULL, dest_lat REAL, dest_lng REAL, delivery_at TEXT,
+      status TEXT NOT NULL DEFAULT 'asignado' CHECK (status IN ('asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'finalizado', 'cancelado')),
+      started_at TEXT, odo_start REAL, odo_start_photo TEXT, loaded_at TEXT, departed_at TEXT, finished_at TEXT, odo_end REAL,
+      odo_end_photo TEXT, cancelled_at TEXT, created_by INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+    INSERT INTO users (name, email, password_hash, role) VALUES ('Dueño', 'd@x.com', 'h', 'admin'), ('Chofer', 'c@x.com', 'h', 'driver');
+    INSERT INTO trips (driver_id, pickup_address, pickup_at, dest_address, status) VALUES (2, 'A', '2026-01-01T10:00', 'B', 'en_ruta');
+  `);
+  old.close();
+  const out = execFileSync(
+    process.execPath,
+    ['-e', `
+      const { get, run } = require('./src/db');
+      const boss = get("SELECT role FROM users WHERE email = 'd@x.com'");
+      const trip = get('SELECT * FROM trips WHERE id = 1');
+      run("UPDATE trips SET status = 'en_destino' WHERE id = 1");
+      run("INSERT INTO users (name, email, password_hash, role) VALUES ('Cli', 'cli@x.com', 'h', 'client')");
+      console.log(JSON.stringify({ role: boss.role, status: trip.status, driver: trip.driver_id }));
+    `],
+    { cwd: path.join(__dirname, '..'), env: { ...process.env, DATA_DIR: dir }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+  );
+  assert.deepEqual(JSON.parse(out.trim().split('\n').pop()), { role: 'superadmin', status: 'en_ruta', driver: 2 });
+  fs.rmSync(dir, { recursive: true, force: true });
 });

@@ -33,7 +33,7 @@ const upload = multer({
       cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);
     },
   }),
-  limits: { fileSize: 12 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 12 * 1024 * 1024, files: 5 },
   fileFilter: (_req, file, cb) => {
     if (/^image\//.test(file.mimetype)) cb(null, true);
     else cb(bad('El archivo debe ser una foto.'));
@@ -49,11 +49,28 @@ const TRIP_SELECT = `
   SELECT t.*,
          d.name AS driver_name, d.email AS driver_email, d.phone AS driver_phone,
          v.name AS vehicle_name, v.plate AS vehicle_plate, v.last_odometer AS vehicle_last_odometer,
+         c.name AS client_name, c.email AS client_email, c.company AS client_company,
          (SELECT COALESCE(SUM(f.liters), 0) FROM fuel_loads f WHERE f.trip_id = t.id) AS fuel_liters,
          (SELECT COALESCE(SUM(f.amount), 0) FROM fuel_loads f WHERE f.trip_id = t.id) AS fuel_amount
     FROM trips t
     LEFT JOIN users d ON d.id = t.driver_id
+    LEFT JOIN users c ON c.id = t.client_id
     LEFT JOIN vehicles v ON v.id = t.vehicle_id`;
+
+// Página de inicio según el perfil.
+function homePage(role) {
+  return { superadmin: '/admin.html', admin: '/admin.html', driver: '/chofer.html', client: '/cliente.html' }[role] || '/';
+}
+
+// Lo que el cliente puede ver de su viaje (sin odómetro, combustible ni notas internas).
+const CLIENT_TRIP_FIELDS = [
+  'id', 'status', 'client', 'cargo', 'pickup_address', 'pickup_lat', 'pickup_lng', 'pickup_at',
+  'dest_address', 'dest_lat', 'dest_lng', 'delivery_at', 'started_at', 'loaded_at', 'departed_at',
+  'arrived_at', 'finished_at', 'cancelled_at', 'received_by', 'driver_name', 'vehicle_name', 'vehicle_plate',
+];
+function forClient(trip) {
+  return Object.fromEntries(CLIENT_TRIP_FIELDS.map((k) => [k, trip[k] ?? null]));
+}
 
 function withMetrics(trip) {
   if (!trip) return trip;
@@ -68,12 +85,27 @@ function loadTrip(id) {
   return withMetrics(get(`${TRIP_SELECT} WHERE t.id = ?`, id));
 }
 
-// El chofer solo puede ver y mover sus propios viajes.
+// El personal ve todos los viajes; el chofer, los que tiene asignados;
+// el cliente, los que son suyos.
+function canSeeTrip(user, trip) {
+  if (auth.isStaff(user)) return true;
+  if (user.role === 'driver') return trip.driver_id === user.id;
+  if (user.role === 'client') return trip.client_id === user.id;
+  return false;
+}
 function tripForUser(req) {
   const trip = loadTrip(Number(req.params.id));
-  if (!trip) throw new HttpError(404, 'El viaje no existe.');
-  if (req.user.role !== 'admin' && trip.driver_id !== req.user.id) throw new HttpError(404, 'El viaje no existe.');
+  if (!trip || !canSeeTrip(req.user, trip)) throw new HttpError(404, 'El viaje no existe.');
   return trip;
+}
+
+function tripPhotos(tripId) {
+  return all(
+    `SELECT p.id, p.kind, p.file, p.lat, p.lng, p.created_at, u.name AS user_name
+       FROM trip_photos p LEFT JOIN users u ON u.id = p.user_id
+      WHERE p.trip_id = ? ORDER BY p.id`,
+    tripId
+  );
 }
 
 function addEvent(tripId, userId, type, note, body = {}) {
@@ -103,7 +135,7 @@ router.get(
   })
 );
 
-// Primer arranque: crea la cuenta del administrador (solo si no hay usuarios).
+// Primer arranque: crea la cuenta del superadministrador (solo si no hay usuarios).
 router.post(
   '/setup',
   h((req, res) => {
@@ -115,14 +147,14 @@ router.post(
     const id = transaction(() => {
       if (get('SELECT COUNT(*) AS n FROM users').n > 0) throw new HttpError(403, 'La cuenta de administrador ya existe.');
       return run(
-        "INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, 'admin')",
+        "INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, 'superadmin')",
         name,
         email.toLowerCase(),
         auth.hashPassword(password)
       ).lastInsertRowid;
     });
     auth.createSession(res, Number(id));
-    res.json({ ok: true, role: 'admin' });
+    res.json({ ok: true, role: 'superadmin', home: homePage('superadmin') });
   })
 );
 
@@ -137,7 +169,7 @@ router.post(
       throw new HttpError(401, 'Correo o contraseña incorrectos.');
     }
     auth.createSession(res, user.id);
-    res.json({ ok: true, role: user.role });
+    res.json({ ok: true, role: user.role, home: homePage(user.role) });
   })
 );
 
@@ -149,7 +181,7 @@ router.post(
   })
 );
 
-router.get('/me', auth.requireUser, (req, res) => res.json(req.user));
+router.get('/me', auth.requireUser, (req, res) => res.json({ ...req.user, home: homePage(req.user.role) }));
 
 router.post(
   '/me/password',
@@ -201,23 +233,39 @@ router.post(
   h(async (req, res) => {
     const sent = await notify.sendPush(req.user.id, {
       title: 'Notificaciones activadas',
-      body: 'Así te avisaremos cuando tengas un viaje nuevo.',
-      url: req.user.role === 'admin' ? '/admin.html' : '/chofer.html',
+      body: req.user.role === 'client' ? 'Así te avisaremos del avance de tus envíos.' : 'Así te avisaremos de los viajes.',
+      url: homePage(req.user.role),
     });
     res.json({ ok: true, devices: sent });
   })
 );
 
-// ---------- Usuarios (choferes y administradores) ----------
+// ---------- Usuarios: superadministrador, personal de AN, choferes y clientes ----------
+// - El superadministrador (dueño) se crea en la configuración inicial y no se
+//   puede desactivar ni cambiar de perfil.
+// - Solo el superadministrador da de alta o modifica al personal de AN.
+// - El personal de AN da de alta y modifica choferes y clientes.
+const ROLES = ['admin', 'driver', 'client'];
+const ROLE_LABEL = { superadmin: 'Superadministrador', admin: 'Personal de AN', driver: 'Chofer', client: 'Cliente' };
+
+function assertCanManage(actor, targetRole) {
+  if (targetRole === 'superadmin') throw new HttpError(403, 'El superadministrador solo se puede modificar a sí mismo.');
+  if (targetRole === 'admin' && actor.role !== 'superadmin') {
+    throw new HttpError(403, 'Solo el superadministrador puede dar de alta o modificar al personal de AN.');
+  }
+}
+
 router.get(
   '/users',
   auth.requireAdmin,
   h((req, res) => {
     res.json(
-      all(`SELECT u.id, u.name, u.email, u.phone, u.role, u.active, u.created_at,
+      all(`SELECT u.id, u.name, u.email, u.phone, u.role, u.company, u.active, u.created_at,
                   (SELECT COUNT(*) FROM push_subscriptions p WHERE p.user_id = u.id) AS push_devices,
-                  (SELECT COUNT(*) FROM trips t WHERE t.driver_id = u.id AND t.status IN ('asignado','en_recoleccion','cargado','en_ruta')) AS open_trips
-             FROM users u ORDER BY u.active DESC, u.role, u.name`)
+                  (SELECT COUNT(*) FROM trips t WHERE (t.driver_id = u.id OR t.client_id = u.id)
+                      AND t.status IN ('asignado','en_recoleccion','cargado','en_ruta','en_destino')) AS open_trips
+             FROM users u
+            ORDER BY u.active DESC, CASE u.role WHEN 'superadmin' THEN 0 WHEN 'admin' THEN 1 WHEN 'driver' THEN 2 ELSE 3 END, u.name`)
     );
   })
 );
@@ -229,28 +277,31 @@ router.post(
     const name = str(req.body.name, 100);
     const email = str(req.body.email, 200)?.toLowerCase();
     const phone = str(req.body.phone, 40);
-    const role = req.body.role === 'admin' ? 'admin' : 'driver';
+    const role = ROLES.includes(req.body.role) ? req.body.role : 'driver';
+    assertCanManage(req.user, role);
+    const company = role === 'client' ? str(req.body.company, 150) : null;
     const password = String(req.body.password || '');
     if (!name || !email) throw bad('Nombre y correo son obligatorios.');
     if (password.length < 8) throw bad('La contraseña debe tener al menos 8 caracteres.');
     if (get('SELECT id FROM users WHERE email = ?', email)) throw bad('Ya existe un usuario con ese correo.');
     const id = Number(
       run(
-        'INSERT INTO users (name, email, phone, password_hash, role) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO users (name, email, phone, password_hash, role, company) VALUES (?, ?, ?, ?, ?, ?)',
         name,
         email,
         phone,
         auth.hashPassword(password),
-        role
+        role,
+        company
       ).lastInsertRowid
     );
     if (req.body.sendWelcome) {
-      const page = role === 'admin' ? 'admin.html' : 'chofer.html';
+      const what = role === 'client' ? 'para dar seguimiento a tus envíos' : 'a la plataforma de viajes';
       notify
         .sendEmail({
           to: email,
           subject: `Tu acceso a ${site.getSite().name}`,
-          text: `Hola ${name},\n\nYa tienes acceso a la plataforma de viajes de ${site.getSite().name}.\n\nEntra en: ${config.appUrl}/${page}\nCorreo: ${email}\nContraseña: ${password}\n\nTe recomendamos cambiar tu contraseña al entrar y activar las notificaciones.\n`,
+          text: `Hola ${name},\n\nYa tienes acceso ${what} de ${site.getSite().name} (${ROLE_LABEL[role]}).\n\nEntra en: ${config.appUrl}/login.html\nCorreo: ${email}\nContraseña: ${password}\n\nTe recomendamos cambiar tu contraseña al entrar y activar las notificaciones.\n`,
         })
         .catch((err) => console.error('No se pudo enviar el correo de bienvenida:', err.message));
     }
@@ -265,17 +316,33 @@ router.put(
     const id = Number(req.params.id);
     const user = get('SELECT * FROM users WHERE id = ?', id);
     if (!user) throw new HttpError(404, 'El usuario no existe.');
+    const self = id === req.user.id;
+    if (!self) assertCanManage(req.user, user.role);
     const name = str(req.body.name, 100) || user.name;
     const email = (str(req.body.email, 200) || user.email).toLowerCase();
     const phone = req.body.phone !== undefined ? str(req.body.phone, 40) : user.phone;
-    const role = req.body.role ? (req.body.role === 'admin' ? 'admin' : 'driver') : user.role;
-    const active = req.body.active !== undefined ? (req.body.active ? 1 : 0) : user.active;
-    if (id === req.user.id && (!active || role !== 'admin')) {
-      throw bad('No puedes desactivar ni quitarte el rol de administrador a ti mismo.');
+    let role = user.role;
+    if (req.body.role && req.body.role !== user.role) {
+      if (self) throw bad('No puedes cambiar tu propio perfil.');
+      if (!ROLES.includes(req.body.role)) throw bad('Perfil no válido.');
+      assertCanManage(req.user, req.body.role);
+      role = req.body.role;
     }
+    const active = req.body.active !== undefined ? (req.body.active ? 1 : 0) : user.active;
+    if (self && !active) throw bad('No puedes desactivar tu propia cuenta.');
+    const company = role === 'client' ? (req.body.company !== undefined ? str(req.body.company, 150) : user.company) : null;
     const clash = get('SELECT id FROM users WHERE email = ? AND id <> ?', email, id);
     if (clash) throw bad('Ya existe un usuario con ese correo.');
-    run('UPDATE users SET name = ?, email = ?, phone = ?, role = ?, active = ? WHERE id = ?', name, email, phone, role, active, id);
+    run(
+      'UPDATE users SET name = ?, email = ?, phone = ?, role = ?, active = ?, company = ? WHERE id = ?',
+      name,
+      email,
+      phone,
+      role,
+      active,
+      company,
+      id
+    );
     if (req.body.password) {
       if (String(req.body.password).length < 8) throw bad('La contraseña debe tener al menos 8 caracteres.');
       run('UPDATE users SET password_hash = ? WHERE id = ?', auth.hashPassword(String(req.body.password)), id);
@@ -332,7 +399,7 @@ router.put(
 );
 
 // ---------- Viajes ----------
-const OPEN = ['asignado', 'en_recoleccion', 'cargado', 'en_ruta'];
+const OPEN = ['asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino'];
 
 router.get(
   '/trips',
@@ -340,12 +407,17 @@ router.get(
   h((req, res) => {
     const where = [];
     const params = [];
-    if (req.user.role !== 'admin') {
+    if (req.user.role === 'driver') {
       where.push('t.driver_id = ?');
       params.push(req.user.id);
-    } else if (req.query.driver_id) {
-      where.push('t.driver_id = ?');
-      params.push(Number(req.query.driver_id));
+    } else if (req.user.role === 'client') {
+      where.push('t.client_id = ?');
+      params.push(req.user.id);
+    } else if (!auth.isStaff(req.user)) {
+      throw new HttpError(403, 'Sin acceso.');
+    } else {
+      if (req.query.driver_id) where.push('t.driver_id = ?'), params.push(Number(req.query.driver_id));
+      if (req.query.client_id) where.push('t.client_id = ?'), params.push(Number(req.query.client_id));
     }
     if (req.query.scope === 'open') where.push(`t.status IN (${OPEN.map(() => '?').join(',')})`), params.push(...OPEN);
     if (req.query.scope === 'closed') where.push("t.status IN ('finalizado','cancelado')");
@@ -359,6 +431,9 @@ router.get(
       `${TRIP_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order} LIMIT ${limit}`,
       ...params
     );
+    if (req.user.role === 'client') {
+      return res.json(rows.map((t) => ({ ...forClient(t), photos: tripPhotos(t.id) })));
+    }
     res.json(rows.map(withMetrics));
   })
 );
@@ -368,6 +443,8 @@ router.get(
   auth.requireUser,
   h((req, res) => {
     const trip = tripForUser(req);
+    if (req.user.role === 'client') return res.json({ ...forClient(trip), photos: tripPhotos(trip.id) });
+    trip.photos = tripPhotos(trip.id);
     trip.events = all(
       `SELECT e.*, u.name AS user_name FROM trip_events e LEFT JOIN users u ON u.id = e.user_id
         WHERE e.trip_id = ? ORDER BY e.id`,
@@ -397,12 +474,18 @@ function readTripFields(body) {
     dest_lat: num(body.dest_lat),
     dest_lng: num(body.dest_lng),
     delivery_at: localDateTime(body.delivery_at, 'fecha de entrega', false),
+    client_id: num(body.client_id),
   };
   if (!fields.pickup_address) throw bad('Indica el punto de recolección.');
   if (!fields.dest_address) throw bad('Indica el destino final.');
   if (!fields.driver_id) throw bad('Selecciona el chofer.');
-  const driver = get("SELECT id FROM users WHERE id = ? AND active = 1", fields.driver_id);
+  const driver = get("SELECT id FROM users WHERE id = ? AND active = 1 AND role <> 'client'", fields.driver_id);
   if (!driver) throw bad('El chofer seleccionado no existe o está inactivo.');
+  if (fields.client_id) {
+    const client = get("SELECT name, company FROM users WHERE id = ? AND role = 'client'", fields.client_id);
+    if (!client) throw bad('El cliente seleccionado no existe.');
+    if (!fields.client) fields.client = client.company || client.name;
+  }
   if (fields.vehicle_id && !get('SELECT id FROM vehicles WHERE id = ?', fields.vehicle_id)) throw bad('El vehículo no existe.');
   if (fields.delivery_at && fields.delivery_at < fields.pickup_at) {
     throw bad('La entrega no puede ser antes de la recolección.');
@@ -417,11 +500,12 @@ router.post(
     const f = readTripFields(req.body);
     const id = Number(
       run(
-        `INSERT INTO trips (driver_id, vehicle_id, client, cargo, notes, pickup_address, pickup_lat, pickup_lng, pickup_at,
+        `INSERT INTO trips (driver_id, vehicle_id, client_id, client, cargo, notes, pickup_address, pickup_lat, pickup_lng, pickup_at,
                             dest_address, dest_lat, dest_lng, delivery_at, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         f.driver_id,
         f.vehicle_id,
+        f.client_id,
         f.client,
         f.cargo,
         f.notes,
@@ -439,6 +523,7 @@ router.post(
     addEvent(id, req.user.id, 'creado', 'Viaje creado y asignado');
     const trip = loadTrip(id);
     notify.notifyDriverAboutTrip(trip, 'assigned');
+    notify.notifyClientAboutTrip(trip, 'programado');
     res.status(201).json(trip);
   })
 );
@@ -460,12 +545,13 @@ router.put(
     if (odoStart != null && odoEnd != null && odoEnd < odoStart) throw bad('El odómetro final no puede ser menor al inicial.');
 
     run(
-      `UPDATE trips SET driver_id = ?, vehicle_id = ?, client = ?, cargo = ?, notes = ?, pickup_address = ?, pickup_lat = ?,
+      `UPDATE trips SET driver_id = ?, vehicle_id = ?, client_id = ?, client = ?, cargo = ?, notes = ?, pickup_address = ?, pickup_lat = ?,
               pickup_lng = ?, pickup_at = ?, dest_address = ?, dest_lat = ?, dest_lng = ?, delivery_at = ?,
               odo_start = ?, odo_end = ?, updated_at = datetime('now')
         WHERE id = ?`,
       f.driver_id,
       f.vehicle_id,
+      f.client_id,
       f.client,
       f.cargo,
       f.notes,
@@ -482,6 +568,7 @@ router.put(
       before.id
     );
     const after = loadTrip(before.id);
+    if (after.client_id && after.client_id !== before.client_id) notify.notifyClientAboutTrip(after, 'programado');
 
     if (driverChanged) {
       addEvent(before.id, req.user.id, 'reasignado', `Reasignado de ${before.driver_name || '—'} a ${after.driver_name}`);
@@ -511,6 +598,7 @@ router.post(
     run("UPDATE trips SET status = 'cancelado', cancelled_at = ?, updated_at = datetime('now') WHERE id = ?", nowLocal(), trip.id);
     addEvent(trip.id, req.user.id, 'cancelado', str(req.body.reason, 500) || 'Viaje cancelado');
     notify.notifyDriverAboutTrip(trip, 'cancelled');
+    notify.notifyClientAboutTrip(trip, 'cancelado');
     res.json(loadTrip(trip.id));
   })
 );
@@ -521,7 +609,12 @@ router.delete(
   h((req, res) => {
     const trip = tripForUser(req);
     if (trip.status !== 'cancelado') throw bad('Solo se pueden borrar viajes cancelados.');
-    const photos = [trip.odo_start_photo, trip.odo_end_photo, ...all('SELECT photo FROM fuel_loads WHERE trip_id = ?', trip.id).map((r) => r.photo)];
+    const photos = [
+      trip.odo_start_photo,
+      trip.odo_end_photo,
+      ...all('SELECT photo FROM fuel_loads WHERE trip_id = ?', trip.id).map((r) => r.photo),
+      ...all('SELECT file FROM trip_photos WHERE trip_id = ?', trip.id).map((r) => r.file),
+    ];
     run('DELETE FROM trips WHERE id = ?', trip.id);
     photos.forEach(removeUpload);
     res.json({ ok: true });
@@ -529,77 +622,168 @@ router.delete(
 );
 
 // ---------- Acciones del chofer ----------
-// Cada paso solo se permite desde el estado anterior, así el flujo es:
-// asignado → en_recoleccion → cargado → en_ruta → finalizado.
+// Cada paso solo se permite desde el estado anterior:
+//   asignado ──(foto del odómetro)──▶ en_recoleccion ──▶ cargado
+//   ──(foto de la carga)──▶ en_ruta ──(foto de llegada)──▶ en_destino
+//   ──(prueba de entrega: fotos, quién recibe, firma y odómetro final)──▶ finalizado
 // "cargado" puede durar horas o días (se carga un día y se sale al siguiente).
 function driverOnly(req) {
   const trip = tripForUser(req);
-  if (req.user.role !== 'admin' && trip.driver_id !== req.user.id) throw new HttpError(403, 'Este viaje no es tuyo.');
+  if (!auth.isStaff(req.user) && !(req.user.role === 'driver' && trip.driver_id === req.user.id)) {
+    throw new HttpError(403, 'Este viaje no es tuyo.');
+  }
   return trip;
 }
 
-function odometerStep(photoField, odoField, from, to, stampField, eventType, label) {
+const stepUpload = upload.fields([
+  { name: 'photo', maxCount: 1 }, // odómetro o foto principal del paso
+  { name: 'pod', maxCount: 3 }, // prueba de entrega
+  { name: 'signature', maxCount: 1 }, // firma de quien recibe
+]);
+const uploadedFiles = (req) => Object.values(req.files || {}).flat();
+
+function addPhoto(tripId, kind, file, req) {
+  run(
+    'INSERT INTO trip_photos (trip_id, kind, file, user_id, lat, lng) VALUES (?, ?, ?, ?, ?, ?)',
+    tripId,
+    kind,
+    file,
+    req.user.id,
+    num(req.body.lat),
+    num(req.body.lng)
+  );
+}
+
+// Paso del viaje: valida, guarda fotos y cambia de estado en una sola transacción.
+function tripStep({ from, to, stamp, event, label, apply, clientNotice }) {
   return [
     auth.requireUser,
-    upload.single('photo'),
+    stepUpload,
     h(async (req, res) => {
       let trip;
       try {
         trip = driverOnly(req);
         if (trip.status !== from) throw bad('El viaje no está en el paso correcto. Actualiza la página.');
-        if (!req.file) throw bad('Toma la foto del odómetro.');
-        const reading = num(req.body.odometer);
-        if (reading == null || reading < 0) throw bad('Escribe la lectura del odómetro (km).');
-        if (odoField === 'odo_end' && trip.odo_start != null && reading < trip.odo_start) {
-          throw bad(`La lectura final (${reading}) no puede ser menor que la inicial (${trip.odo_start}).`);
-        }
+        const files = { photo: req.files?.photo?.[0], pod: req.files?.pod || [], signature: req.files?.signature?.[0] };
         transaction(() => {
-          run(
-            `UPDATE trips SET status = ?, ${odoField} = ?, ${photoField} = ?, ${stampField} = ?, updated_at = datetime('now') WHERE id = ?`,
-            to,
-            reading,
-            req.file.filename,
-            nowLocal(),
-            trip.id
-          );
-          if (trip.vehicle_id) run('UPDATE vehicles SET last_odometer = ? WHERE id = ?', reading, trip.vehicle_id);
-          addEvent(trip.id, req.user.id, eventType, `${label} · odómetro ${reading} km`, req.body);
+          const note = apply ? apply(trip, files, req) : label;
+          run(`UPDATE trips SET status = ?, ${stamp} = ?, updated_at = datetime('now') WHERE id = ?`, to, nowLocal(), trip.id);
+          addEvent(trip.id, req.user.id, event, note, req.body);
         });
       } catch (err) {
-        if (req.file) removeUpload(req.file.filename);
+        uploadedFiles(req).forEach((f) => removeUpload(f.filename));
         throw err;
       }
       const updated = loadTrip(trip.id);
       const summary =
-        eventType === 'finalizado' && updated.km != null
+        event === 'finalizado' && updated.km != null
           ? ` · ${Math.round(updated.km)} km${updated.km_per_liter ? ` · ${updated.km_per_liter.toFixed(2)} km/L` : ''}`
           : '';
       notify.notifyAdmins(`${updated.driver_name}: ${label.toLowerCase()} (viaje #${trip.id})`, `${updated.pickup_address} → ${updated.dest_address}${summary}`, `/admin.html#viaje-${trip.id}`);
+      if (clientNotice) notify.notifyClientAboutTrip(updated, clientNotice);
       res.json(updated);
     }),
   ];
 }
 
-router.post('/trips/:id/start', ...odometerStep('odo_start_photo', 'odo_start', 'asignado', 'en_recoleccion', 'started_at', 'iniciado', 'Inició el viaje'));
-router.post('/trips/:id/finish', ...odometerStep('odo_end_photo', 'odo_end', 'en_ruta', 'finalizado', 'finished_at', 'finalizado', 'Finalizó el viaje'));
-
-function simpleStep(from, to, stampField, eventType, label) {
-  return [
-    auth.requireUser,
-    h((req, res) => {
-      const trip = driverOnly(req);
-      if (trip.status !== from) throw bad('El viaje no está en el paso correcto. Actualiza la página.');
-      run(`UPDATE trips SET status = ?, ${stampField} = ?, updated_at = datetime('now') WHERE id = ?`, to, nowLocal(), trip.id);
-      addEvent(trip.id, req.user.id, eventType, str(req.body.note, 500) || label, req.body);
-      const updated = loadTrip(trip.id);
-      notify.notifyAdmins(`${updated.driver_name}: ${label.toLowerCase()} (viaje #${trip.id})`, `${updated.pickup_address} → ${updated.dest_address}`, `/admin.html#viaje-${trip.id}`);
-      res.json(updated);
-    }),
-  ];
+function requirePhoto(file, message) {
+  if (!file) throw bad(message);
+  return file.filename;
 }
 
-router.post('/trips/:id/loaded', ...simpleStep('en_recoleccion', 'cargado', 'loaded_at', 'cargado', 'Terminó de cargar'));
-router.post('/trips/:id/depart', ...simpleStep('cargado', 'en_ruta', 'departed_at', 'en_ruta', 'Salió rumbo al destino'));
+function readOdometer(req, trip, isEnd) {
+  const reading = num(req.body.odometer);
+  if (reading == null || reading < 0) throw bad('Escribe la lectura del odómetro (km).');
+  if (isEnd && trip.odo_start != null && reading < trip.odo_start) {
+    throw bad(`La lectura final (${reading}) no puede ser menor que la inicial (${trip.odo_start}).`);
+  }
+  return reading;
+}
+
+// 1) Antes de arrancar: foto y lectura del odómetro.
+router.post(
+  '/trips/:id/start',
+  ...tripStep({
+    from: 'asignado',
+    to: 'en_recoleccion',
+    stamp: 'started_at',
+    event: 'iniciado',
+    label: 'Inició el viaje',
+    apply(trip, files, req) {
+      const photo = requirePhoto(files.photo, 'Toma la foto del odómetro.');
+      const reading = readOdometer(req, trip, false);
+      run('UPDATE trips SET odo_start = ?, odo_start_photo = ? WHERE id = ?', reading, photo, trip.id);
+      if (trip.vehicle_id) run('UPDATE vehicles SET last_odometer = ? WHERE id = ?', reading, trip.vehicle_id);
+      return `Inició el viaje · odómetro ${reading} km`;
+    },
+  })
+);
+
+// 2) Terminó de cargar (puede salir hasta otro día).
+router.post(
+  '/trips/:id/loaded',
+  ...tripStep({ from: 'en_recoleccion', to: 'cargado', stamp: 'loaded_at', event: 'cargado', label: 'Terminó de cargar' })
+);
+
+// 3) Sale rumbo al destino: foto de la carga (inicio del viaje oficial).
+router.post(
+  '/trips/:id/depart',
+  ...tripStep({
+    from: 'cargado',
+    to: 'en_ruta',
+    stamp: 'departed_at',
+    event: 'en_ruta',
+    label: 'Salió rumbo al destino',
+    clientNotice: 'en_camino',
+    apply(trip, files, req) {
+      addPhoto(trip.id, 'carga', requirePhoto(files.photo, 'Toma la foto de la carga antes de salir.'), req);
+      return 'Salió rumbo al destino · foto de la carga';
+    },
+  })
+);
+
+// 4) Llegó al punto de entrega: foto de llegada.
+router.post(
+  '/trips/:id/arrive',
+  ...tripStep({
+    from: 'en_ruta',
+    to: 'en_destino',
+    stamp: 'arrived_at',
+    event: 'llegada',
+    label: 'Llegó al punto de entrega',
+    clientNotice: 'llegada',
+    apply(trip, files, req) {
+      addPhoto(trip.id, 'llegada', requirePhoto(files.photo, 'Toma la foto de llegada al punto de entrega.'), req);
+      return 'Llegó al punto de entrega · foto de llegada';
+    },
+  })
+);
+
+// 5) Entrega: fotos de prueba de entrega, nombre de quien recibe, firma (opcional)
+//    y odómetro final.
+router.post(
+  '/trips/:id/finish',
+  ...tripStep({
+    from: 'en_destino',
+    to: 'finalizado',
+    stamp: 'finished_at',
+    event: 'finalizado',
+    label: 'Entregó y finalizó el viaje',
+    clientNotice: 'entregado',
+    apply(trip, files, req) {
+      if (!files.pod.length) throw bad('Toma al menos una foto de la prueba de entrega.');
+      const receivedBy = str(req.body.received_by, 150);
+      if (!receivedBy) throw bad('Escribe el nombre de quien recibe.');
+      const odo = requirePhoto(files.photo, 'Toma la foto del odómetro final.');
+      const reading = readOdometer(req, trip, true);
+      files.pod.forEach((f) => addPhoto(trip.id, 'entrega', f.filename, req));
+      if (files.signature) addPhoto(trip.id, 'firma', files.signature.filename, req);
+      run('UPDATE trips SET odo_end = ?, odo_end_photo = ?, received_by = ? WHERE id = ?', reading, odo, receivedBy, trip.id);
+      if (trip.vehicle_id) run('UPDATE vehicles SET last_odometer = ? WHERE id = ?', reading, trip.vehicle_id);
+      return `Entregado a ${receivedBy} · ${files.pod.length} foto(s) de entrega${files.signature ? ' · con firma' : ''} · odómetro ${reading} km`;
+    },
+  })
+);
 
 // Nota libre del chofer (incidencias, retrasos, etc.).
 router.post(
@@ -624,7 +808,7 @@ router.post(
     try {
       const trip = driverOnly(req);
       if (trip.status === 'cancelado') throw bad('El viaje está cancelado.');
-      if (req.user.role !== 'admin' && trip.status === 'finalizado') {
+      if (!auth.isStaff(req.user) && trip.status === 'finalizado') {
         throw bad('El viaje ya terminó. Pide al administrador que registre la carga.');
       }
       const liters = num(req.body.liters);
@@ -666,15 +850,29 @@ router.get(
   auth.requireUser,
   h((req, res) => {
     const file = path.basename(req.params.file);
-    const owner = get(
-      `SELECT t.driver_id FROM trips t
-        WHERE t.odo_start_photo = ? OR t.odo_end_photo = ?
-           OR t.id IN (SELECT trip_id FROM fuel_loads WHERE photo = ?)`,
-      file,
-      file,
+    // Fotos de etapas (carga, llegada, entrega, firma): las ve también el cliente del viaje.
+    const stage = get(
+      'SELECT t.driver_id, t.client_id FROM trip_photos p JOIN trips t ON t.id = p.trip_id WHERE p.file = ?',
       file
     );
-    if (!owner || (req.user.role !== 'admin' && owner.driver_id !== req.user.id)) throw new HttpError(404, 'Foto no encontrada.');
+    // Odómetro y tickets de combustible: solo personal y chofer.
+    const internal = stage
+      ? null
+      : get(
+          `SELECT t.driver_id, NULL AS client_id FROM trips t
+            WHERE t.odo_start_photo = ? OR t.odo_end_photo = ?
+               OR t.id IN (SELECT trip_id FROM fuel_loads WHERE photo = ?)`,
+          file,
+          file,
+          file
+        );
+    const owner = stage || internal;
+    const allowed =
+      owner &&
+      (auth.isStaff(req.user) ||
+        (req.user.role === 'driver' && owner.driver_id === req.user.id) ||
+        (req.user.role === 'client' && owner.client_id === req.user.id));
+    if (!allowed) throw new HttpError(404, 'Foto no encontrada.');
     res.setHeader('Cache-Control', 'private, max-age=86400');
     res.sendFile(path.join(config.uploadsDir, file));
   })

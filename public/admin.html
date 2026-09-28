@@ -19,7 +19,7 @@
   </header>
   <nav class="tabs">
     <button class="active" data-tab="trips">Viajes</button>
-    <button data-tab="drivers">Choferes</button>
+    <button data-tab="drivers">Usuarios</button>
     <button data-tab="vehicles">Vehículos</button>
     <button data-tab="payments">Pagos</button>
     <button data-tab="report">Rendimiento</button>
@@ -52,12 +52,24 @@
       </div>
     </section>
 
-    <!-- Choferes -->
+    <!-- Usuarios -->
     <section id="tab-drivers" class="hidden">
-      <div class="toolbar"><button class="btn-primary" id="new-user">＋ Nuevo chofer</button></div>
+      <div class="toolbar">
+        <button class="btn-primary" id="new-user">＋ Nuevo usuario</button>
+        <div class="grow"></div>
+        <label>Perfil
+          <select id="u-role">
+            <option value="">Todos</option>
+            <option value="superadmin">Superadministrador</option>
+            <option value="admin">Personal de AN</option>
+            <option value="driver">Choferes</option>
+            <option value="client">Clientes</option>
+          </select>
+        </label>
+      </div>
       <div class="card table-wrap" style="padding:0">
         <table class="list">
-          <thead><tr><th>Nombre</th><th>Correo</th><th>Teléfono</th><th>Rol</th><th>Notificaciones</th><th class="num">Viajes abiertos</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Correo</th><th>Teléfono</th><th>Perfil</th><th>Notificaciones</th><th class="num">Viajes abiertos</th><th>Estado</th></tr></thead>
           <tbody id="users-body"></tbody>
         </table>
       </div>
@@ -207,6 +219,7 @@
       <div class="grid-2">
         <div><label>Chofer</label><select name="driver_id" required></select></div>
         <div><label>Vehículo</label><select name="vehicle_id"><option value="">— Sin asignar —</option></select></div>
+        <div><label>Cliente con acceso a la plataforma (opcional)</label><select name="client_id"><option value="">— Ninguno —</option></select></div>
       </div>
 
       <div class="grid-2">
@@ -256,12 +269,18 @@
   <!-- Usuario -->
   <dialog id="user-dialog">
     <form id="user-form">
-      <h2 id="user-form-title">Nuevo chofer</h2>
+      <h2 id="user-form-title">Nuevo usuario</h2>
+      <label>Perfil</label>
+      <select name="role">
+        <option value="driver">Chofer</option>
+        <option value="client">Cliente</option>
+        <option value="admin">Personal de AN</option>
+      </select>
+      <p class="muted small" id="user-role-help"></p>
       <label>Nombre completo</label><input name="name" required maxlength="100">
+      <div id="user-company-row"><label>Empresa del cliente</label><input name="company" maxlength="150" placeholder="Razón social o nombre comercial"></div>
       <label>Correo (con este inicia sesión y recibe avisos)</label><input name="email" type="email" required>
       <label>Teléfono</label><input name="phone" type="tel" maxlength="40">
-      <label>Rol</label>
-      <select name="role"><option value="driver">Chofer</option><option value="admin">Administrador</option></select>
       <label id="user-password-label">Contraseña (mínimo 8 caracteres)</label>
       <input name="password" type="text" minlength="8" autocomplete="new-password">
       <label class="checkbox" id="user-welcome-row"><input type="checkbox" name="sendWelcome" checked> Enviarle por correo sus datos de acceso</label>

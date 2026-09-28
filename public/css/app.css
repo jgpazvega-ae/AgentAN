@@ -128,6 +128,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 .st-asignado { background: var(--primary-soft); color: var(--primary-text); }
 .st-en_recoleccion, .st-cargado { background: var(--warn-soft); color: var(--warn); }
 .st-en_ruta { background: #ede9fe; color: #6d28d9; }
+.st-en_destino { background: #cffafe; color: #0e7490; }
 .st-finalizado { background: var(--ok-soft); color: var(--ok); }
 .st-cancelado { background: var(--danger-soft); color: var(--danger); }
 @media (prefers-color-scheme: dark) { .st-en_ruta { background: #4c1d9588; color: #c4b5fd; } }
@@ -191,3 +192,19 @@ dialog form, dialog .dialog-body { padding: 18px; }
 .topbar .brand { font-weight: 600; opacity: .9; padding-left: 12px; border-left: 1px solid rgb(255 255 255 / .25); }
 @media (max-width: 420px) { .topbar .brand-logo { height: 24px; } }
 .empty { text-align: center; padding: 32px 16px; color: var(--muted); }
+
+/* Pasos del viaje con fotos */
+.step-h { margin: 14px 0 6px; font-size: .95rem; }
+.pod-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pod-grid .photo-input { padding: 10px 6px; font-size: .8rem; }
+.pod-grid .photo-input img { max-height: 110px; }
+.photo-input small { font-weight: 400; color: var(--muted); }
+.sig-wrap { position: relative; }
+.sig-wrap canvas { width: 100%; height: 140px; background: #fff; border: 1px dashed var(--border); border-radius: 10px; touch-action: none; display: block; }
+.sig-wrap button { position: absolute; right: 6px; bottom: 6px; }
+.photo-group { margin-top: 8px; }
+.photo-group h4 { margin: 8px 0 4px; font-size: .85rem; color: var(--muted); }
+.role-superadmin { background: #13294b; color: #fff; }
+.role-admin { background: var(--primary-soft); color: var(--primary-text); }
+.role-driver { background: var(--ok-soft); color: var(--ok); }
+.role-client { background: var(--warn-soft); color: var(--warn); }

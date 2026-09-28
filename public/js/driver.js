@@ -1,23 +1,59 @@
-// Página del chofer: lista de viajes, pasos del viaje y fotos del odómetro.
+// Página del chofer: lista de viajes, pasos del viaje con fotos (odómetro,
+// carga, llegada y prueba de entrega).
 let cfg = {};
 let me = null;
 let tab = 'open';
 let trips = [];
-let odoAction = null; // { trip, kind: 'start' | 'finish' }
+let stepAction = null; // { trip, kind }
 let fuelTrip = null;
 let noteTrip = null;
 
 const ACTIONS = {
   asignado: { label: '▶ Iniciar viaje', cls: 'btn-primary', kind: 'start', help: 'Antes de arrancar hacia la recolección, toma la foto del odómetro.' },
   en_recoleccion: { label: '📦 Terminé de cargar', cls: 'btn-primary', kind: 'loaded', help: 'Presiona cuando la mercancía esté cargada. Si sales hasta otro día, el viaje quedará en espera.' },
-  cargado: { label: '🚚 Salir rumbo al destino', cls: 'btn-primary', kind: 'depart', help: 'Presiona justo cuando arranques hacia el destino final.' },
-  en_ruta: { label: '🏁 Finalizar viaje', cls: 'btn-ok', kind: 'finish', help: 'Al entregar, toma la foto del odómetro para cerrar el viaje.' },
+  cargado: { label: '🚚 Salir rumbo al destino', cls: 'btn-primary', kind: 'depart', help: 'Justo antes de arrancar hacia el destino, toma la foto de la carga.' },
+  en_ruta: { label: '📍 Llegué al punto de entrega', cls: 'btn-primary', kind: 'arrive', help: 'Al llegar al destino, toma una foto del lugar.' },
+  en_destino: { label: '✅ Entregar', cls: 'btn-ok', kind: 'finish', help: 'Toma las fotos de la prueba de entrega, anota quién recibe y la foto del odómetro.' },
+};
+
+// Qué pide cada paso. Todas las fotos quedan guardadas en la plataforma.
+const STEPS = {
+  start: {
+    title: 'Iniciar viaje',
+    help: 'Toma una foto clara del odómetro (kilometraje) antes de arrancar hacia la recolección y escribe la lectura.',
+    photo: '📷 Foto del odómetro',
+    odometer: 'start',
+    done: 'Viaje iniciado. ¡Buen camino!',
+  },
+  depart: {
+    title: 'Salir rumbo al destino',
+    help: 'Toma una foto de la carga ya acomodada en la unidad, justo antes de salir.',
+    photo: '📷 Foto de la carga',
+    done: '¡Buen viaje! Maneja con cuidado',
+  },
+  arrive: {
+    title: 'Llegué al punto de entrega',
+    help: 'Toma una foto al llegar: fachada, andén o lugar de entrega.',
+    photo: '📷 Foto de llegada',
+    done: 'Llegada registrada',
+  },
+  finish: {
+    title: 'Entregar',
+    help: 'Prueba de entrega: fotos de la mercancía entregada o de la remisión firmada, nombre de quien recibe, su firma (opcional) y el odómetro final.',
+    pod: 3,
+    receivedBy: true,
+    signature: true,
+    photo: '📷 Foto del odómetro final',
+    odometer: 'end',
+    done: '¡Entrega registrada! Viaje finalizado.',
+  },
 };
 
 async function init() {
   registerServiceWorker();
   [cfg, me] = await Promise.all([api('/config'), api('/me')]);
-  $('#brand').textContent = me.role === 'admin' ? 'Vista chofer' : 'Mis viajes';
+  if (me.role === 'client') return (location.href = '/cliente.html');
+  $('#brand').textContent = isStaffRole(me.role) ? 'Vista chofer' : 'Mis viajes';
   $('#menu-name').textContent = me.name;
   $('#menu-email').textContent = me.email;
   document.title = `Mis viajes · ${cfg.companyName}`;
@@ -75,14 +111,14 @@ function tripCard(t) {
         </div>`
       : '';
 
-  const isOpen = ['en_recoleccion', 'cargado', 'en_ruta'].includes(t.status);
+  const isOpen = ['en_recoleccion', 'cargado', 'en_ruta', 'en_destino'].includes(t.status);
   return `
   <article class="card" id="viaje-${t.id}">
     <div class="card-head">
       <div><h2>Viaje #${t.id}</h2>${statusBadge(t.status)}</div>
       <span class="muted small">${t.odo_start != null ? `Odómetro inicial: ${fmtNum(t.odo_start)} km` : ''}</span>
     </div>
-    ${t.status !== 'cancelado' ? `<div class="steps">${[1, 2, 3, 4].map((i) => `<span class="${step >= i ? 'done' : ''}"></span>`).join('')}</div>` : ''}
+    ${t.status !== 'cancelado' ? `<div class="steps">${[1, 2, 3, 4, 5].map((i) => `<span class="${step >= i ? 'done' : ''}"></span>`).join('')}</div>` : ''}
     <div class="stop">
       <div class="dot">📍</div>
       <div class="body">
@@ -209,17 +245,17 @@ $('#list').addEventListener('click', async (e) => {
   if (!btn) return;
   const trip = trips.find((t) => t.id === Number(btn.dataset.id));
   const kind = btn.dataset.action;
-  if (kind === 'start' || kind === 'finish') return openOdometer(trip, kind);
+  if (STEPS[kind]) return openStep(trip, kind);
   if (kind === 'fuel') return openFuel(trip);
   if (kind === 'note') return openNote(trip);
 
-  const question = kind === 'loaded' ? '¿Confirmas que ya terminaste de cargar?' : '¿Confirmas que ya vas saliendo rumbo al destino?';
-  if (!confirm(question)) return;
+  if (kind !== 'loaded') return;
+  if (!confirm('¿Confirmas que ya terminaste de cargar?')) return;
   btn.disabled = true;
   try {
     const pos = await currentPosition();
-    await api(`/trips/${trip.id}/${kind === 'loaded' ? 'loaded' : 'depart'}`, { method: 'POST', body: { ...(pos || {}) } });
-    toast(kind === 'loaded' ? 'Carga registrada' : '¡Buen viaje! Maneja con cuidado');
+    await api(`/trips/${trip.id}/loaded`, { method: 'POST', body: { ...(pos || {}) } });
+    toast('Carga registrada');
     await load(true);
   } catch (err) {
     toast(err.message);
@@ -227,22 +263,83 @@ $('#list').addEventListener('click', async (e) => {
   }
 });
 
-function openOdometer(trip, kind) {
-  odoAction = { trip, kind };
-  const form = $('#odo-form');
-  form.reset();
-  $('#odo-preview').classList.add('hidden');
-  $('#odo-photo-text').classList.remove('hidden');
-  $('#odo-msg').innerHTML = '';
-  $('#odo-title').textContent = kind === 'start' ? `Iniciar viaje #${trip.id}` : `Finalizar viaje #${trip.id}`;
-  $('#odo-help').textContent =
-    kind === 'start'
-      ? 'Toma una foto clara del odómetro (kilometraje) antes de arrancar y escribe la lectura.'
-      : 'Toma una foto clara del odómetro al llegar al destino y escribe la lectura.';
-  const ref = kind === 'start' ? trip.vehicle_last_odometer : trip.odo_start;
-  $('#odo-hint').textContent = ref != null ? `${kind === 'start' ? 'Última lectura registrada de este vehículo' : 'Lectura al iniciar'}: ${fmtNum(ref)} km` : '';
-  $('#odo-reading').min = kind === 'finish' && trip.odo_start != null ? trip.odo_start : 0;
-  $('#odo-dialog').showModal();
+// ---------- Ventana de cada paso (fotos, quién recibe, firma, odómetro) ----------
+function photoSlot(name, label, required) {
+  return `<label class="photo-input">
+      <span class="photo-text">${esc(label)}${required ? '' : ' <small>(opcional)</small>'}</span>
+      <img class="hidden preview" alt="Vista previa">
+      <input type="file" name="${name}" accept="image/*" capture="environment">
+    </label>`;
+}
+
+function openStep(trip, kind) {
+  const cfgStep = STEPS[kind];
+  stepAction = { trip, kind };
+  $('#step-title').textContent = `${cfgStep.title} · viaje #${trip.id}`;
+  $('#step-help').textContent = cfgStep.help;
+  const parts = [];
+  if (cfgStep.pod) {
+    parts.push('<h3 class="step-h">Prueba de entrega</h3><div class="pod-grid">');
+    for (let i = 0; i < cfgStep.pod; i++) parts.push(photoSlot('pod', i === 0 ? '📷 Foto de entrega' : '📷 Otra foto', i === 0));
+    parts.push('</div>');
+  }
+  if (cfgStep.receivedBy) {
+    parts.push('<label for="received-by">Nombre de quien recibe</label><input id="received-by" name="received_by" maxlength="150" autocomplete="off" required>');
+  }
+  if (cfgStep.signature) {
+    parts.push(`<label>Firma de quien recibe <small class="muted">(opcional)</small></label>
+      <div class="sig-wrap"><canvas id="sig-pad" width="600" height="200"></canvas>
+      <button type="button" class="btn-sm" id="sig-clear">Borrar firma</button></div>`);
+  }
+  if (cfgStep.odometer) parts.push('<h3 class="step-h">Odómetro</h3>');
+  parts.push(photoSlot('photo', cfgStep.photo, true));
+  if (cfgStep.odometer) {
+    const ref = cfgStep.odometer === 'start' ? trip.vehicle_last_odometer : trip.odo_start;
+    const refLabel = cfgStep.odometer === 'start' ? 'Última lectura registrada de este vehículo' : 'Lectura al iniciar';
+    parts.push(`<label for="odo-reading">Lectura del odómetro (km)</label>
+      <input id="odo-reading" name="odometer" type="number" inputmode="decimal" step="0.1" min="${cfgStep.odometer === 'end' && trip.odo_start != null ? trip.odo_start : 0}" required placeholder="Ej. 125430">
+      ${ref != null ? `<p class="muted small">${refLabel}: ${fmtNum(ref)} km</p>` : ''}`);
+  }
+  $('#step-fields').innerHTML = parts.join('');
+  $('#step-msg').innerHTML = '';
+  for (const input of $$('#step-fields input[type=file]')) {
+    const box = input.closest('.photo-input');
+    bindPhotoPreview(input, box.querySelector('.preview'), box.querySelector('.photo-text'));
+  }
+  if (cfgStep.signature) setupSignature($('#sig-pad'));
+  $('#step-dialog').showModal();
+}
+
+// Firma con el dedo sobre la pantalla.
+let signed = false;
+function setupSignature(canvas) {
+  signed = false;
+  const ctx = canvas.getContext('2d');
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#111827';
+  let drawing = false;
+  const point = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return [((e.clientX - r.left) * canvas.width) / r.width, ((e.clientY - r.top) * canvas.height) / r.height];
+  };
+  canvas.onpointerdown = (e) => {
+    drawing = true;
+    canvas.setPointerCapture(e.pointerId);
+    ctx.beginPath();
+    ctx.moveTo(...point(e));
+  };
+  canvas.onpointermove = (e) => {
+    if (!drawing) return;
+    ctx.lineTo(...point(e));
+    ctx.stroke();
+    signed = true;
+  };
+  canvas.onpointerup = () => (drawing = false);
+  $('#sig-clear').onclick = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    signed = false;
+  };
 }
 
 function bindPhotoPreview(input, img, text) {
@@ -254,36 +351,42 @@ function bindPhotoPreview(input, img, text) {
     text.classList.add('hidden');
   });
 }
-bindPhotoPreview($('#odo-form [name=photo]'), $('#odo-preview'), $('#odo-photo-text'));
 bindPhotoPreview($('#fuel-form [name=photo]'), $('#fuel-form .preview'), $('#fuel-form .photo-text'));
 
-$('#odo-form').addEventListener('submit', async (e) => {
+$('#step-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
-  const file = form.photo.files[0];
-  if (!file) return showError($('#odo-msg'), 'Toma la foto del odómetro.');
-  const btn = $('#odo-submit');
+  const cfgStep = STEPS[stepAction.kind];
+  const main = form.querySelector('input[name=photo]').files[0];
+  const pods = [...form.querySelectorAll('input[name=pod]')].map((i) => i.files[0]).filter(Boolean);
+  if (cfgStep.pod && !pods.length) return showError($('#step-msg'), 'Toma al menos una foto de la prueba de entrega.');
+  if (cfgStep.receivedBy && !form.received_by.value.trim()) return showError($('#step-msg'), 'Escribe el nombre de quien recibe.');
+  if (!main) return showError($('#step-msg'), `Falta: ${cfgStep.photo.replace('📷 ', '')}.`);
+  if (cfgStep.odometer && !form.odometer.value) return showError($('#step-msg'), 'Escribe la lectura del odómetro.');
+  const btn = $('#step-submit');
   btn.disabled = true;
   btn.textContent = 'Enviando…';
   try {
-    const [photo, pos] = await Promise.all([shrinkPhoto(file), currentPosition()]);
+    const [photo, pos, ...podBlobs] = await Promise.all([shrinkPhoto(main), currentPosition(), ...pods.map((f) => shrinkPhoto(f))]);
     const body = new FormData();
-    body.append('photo', photo, 'odometro.jpg');
-    body.append('odometer', form.odometer.value);
+    body.append('photo', photo, 'foto.jpg');
+    podBlobs.forEach((b, i) => body.append('pod', b, `entrega-${i + 1}.jpg`));
+    if (cfgStep.odometer) body.append('odometer', form.odometer.value);
+    if (cfgStep.receivedBy) body.append('received_by', form.received_by.value.trim());
+    if (cfgStep.signature && signed) {
+      const sig = await new Promise((resolve) => $('#sig-pad').toBlob(resolve, 'image/png'));
+      if (sig) body.append('signature', sig, 'firma.png');
+    }
     if (pos) {
       body.append('lat', pos.lat);
       body.append('lng', pos.lng);
     }
-    const trip = await api(`/trips/${odoAction.trip.id}/${odoAction.kind}`, { method: 'POST', body });
-    $('#odo-dialog').close();
-    if (odoAction.kind === 'finish') {
-      toast(`Viaje terminado: ${fmtNum(trip.km)} km${trip.km_per_liter ? ` · ${fmtNum(trip.km_per_liter, 2)} km/L` : ''}`);
-    } else {
-      toast('Viaje iniciado. ¡Buen camino!');
-    }
+    const trip = await api(`/trips/${stepAction.trip.id}/${stepAction.kind}`, { method: 'POST', body });
+    $('#step-dialog').close();
+    toast(stepAction.kind === 'finish' && trip.km != null ? `${cfgStep.done} ${fmtNum(trip.km)} km recorridos.` : cfgStep.done);
     await load(true);
   } catch (err) {
-    showError($('#odo-msg'), err);
+    showError($('#step-msg'), err);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Confirmar';

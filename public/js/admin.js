@@ -13,11 +13,14 @@ let destPicker;
 async function init() {
   registerServiceWorker();
   [cfg, me] = await Promise.all([api('/config'), api('/me')]);
-  if (me.role !== 'admin') {
-    location.href = '/chofer.html';
+  if (!isStaffRole(me.role)) {
+    location.href = me.home;
     return;
   }
-  $('#brand').textContent = 'Administración';
+  // Datos de la empresa y tarifas: solo el superadministrador.
+  if (me.role !== 'superadmin') $('.tabs [data-tab=company]').classList.add('hidden');
+  if (me.role !== 'superadmin') $('#user-form [name=role] option[value=admin]').remove();
+  $('#brand').textContent = me.role === 'superadmin' ? 'Administración · Superadministrador' : 'Administración';
   document.title = `Administración · ${cfg.companyName}`;
   $('#menu-name').textContent = me.name;
   $('#menu-email').textContent = me.email;
@@ -101,12 +104,18 @@ $('#f-scope').onchange = loadTrips;
 $('#f-driver').onchange = loadTrips;
 
 function fillSelects() {
-  const drivers = users.filter((u) => u.active);
+  // Choferes (y personal, por si alguien de la oficina hace un viaje); nunca clientes.
+  const drivers = users.filter((u) => u.active && u.role !== 'client');
   $('#trip-form [name=driver_id]').innerHTML =
     '<option value="">— Selecciona —</option>' +
-    drivers.map((u) => `<option value="${u.id}">${esc(u.name)}${u.role === 'admin' ? ' (admin)' : ''}</option>`).join('');
+    drivers.map((u) => `<option value="${u.id}">${esc(u.name)}${u.role !== 'driver' ? ` (${ROLE_LABEL[u.role]})` : ''}</option>`).join('');
+  const clients = users.filter((u) => u.active && u.role === 'client');
+  $('#trip-form [name=client_id]').innerHTML =
+    '<option value="">— Ninguno —</option>' +
+    clients.map((u) => `<option value="${u.id}">${esc(u.company ? `${u.company} · ${u.name}` : u.name)}</option>`).join('');
   const current = $('#f-driver').value;
-  $('#f-driver').innerHTML = '<option value="">Todos</option>' + users.map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
+  $('#f-driver').innerHTML =
+    '<option value="">Todos</option>' + users.filter((u) => u.role !== 'client').map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
   $('#f-driver').value = current;
   $('#trip-form [name=vehicle_id]').innerHTML =
     '<option value="">— Sin asignar —</option>' +
@@ -128,6 +137,7 @@ function openTripForm(trip) {
     for (const [sel, id, label] of [
       ['driver_id', t.driver_id, t.driver_name],
       ['vehicle_id', t.vehicle_id, t.vehicle_name],
+      ['client_id', t.client_id, t.client_name],
     ]) {
       const select = form[sel];
       if (id && ![...select.options].some((o) => Number(o.value) === id)) select.add(new Option(label, id));
@@ -136,6 +146,7 @@ function openTripForm(trip) {
   form.driver_id.value = t.driver_id || '';
   form.driver_id.disabled = Boolean(trip && trip.status !== 'asignado');
   form.vehicle_id.value = t.vehicle_id || '';
+  form.client_id.value = t.client_id || '';
   form.pickup_at.value = t.pickup_at || '';
   form.delivery_at.value = t.delivery_at || '';
   form.client.value = t.client || '';
@@ -157,6 +168,7 @@ $('#trip-form').addEventListener('submit', async (e) => {
   const body = {
     driver_id: form.driver_id.value,
     vehicle_id: form.vehicle_id.value,
+    client_id: form.client_id.value,
     pickup_address: pickup.address,
     pickup_lat: pickup.lat,
     pickup_lng: pickup.lng,
@@ -201,14 +213,20 @@ async function openDetail(id) {
   }
   const photo = (file, caption) =>
     file ? `<figure><img data-zoom src="/api/photos/${encodeURIComponent(file)}" alt="${esc(caption)}"><figcaption>${esc(caption)}</figcaption></figure>` : '';
+  // Fotos en el orden del viaje: odómetro, carga, llegada, entrega, firma, odómetro final, tickets.
+  const stagePhotos = (kind) => t.photos.filter((p) => p.kind === kind).map((p) => photo(p.file, `${PHOTO_KIND[kind]} · ${fmtUtc(p.created_at)}`));
   const photos = [
     photo(t.odo_start_photo, `Odómetro inicial: ${fmtNum(t.odo_start)} km`),
+    ...stagePhotos('carga'),
+    ...stagePhotos('llegada'),
+    ...stagePhotos('entrega'),
+    ...stagePhotos('firma'),
     photo(t.odo_end_photo, `Odómetro final: ${fmtNum(t.odo_end)} km`),
     ...t.fuel.map((f) => photo(f.photo, `Ticket ${fmtNum(f.liters, 1)} L`)),
   ].join('');
 
   const canEdit = t.status !== 'cancelado';
-  const canCancel = ['asignado', 'en_recoleccion', 'cargado', 'en_ruta'].includes(t.status);
+  const canCancel = ['asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino'].includes(t.status);
 
   $('#detail-body').innerHTML = `
     <div class="card-head">
@@ -224,13 +242,15 @@ async function openDetail(id) {
         <dl class="kv" style="margin-top:8px">
           <dt>Chofer</dt><dd>${esc(t.driver_name || '—')}${t.driver_phone ? ` · <a href="tel:${esc(t.driver_phone)}">${esc(t.driver_phone)}</a>` : ''}</dd>
           <dt>Vehículo</dt><dd>${esc(t.vehicle_name || '—')}${t.vehicle_plate ? ` · ${esc(t.vehicle_plate)}` : ''}</dd>
-          ${t.client ? `<dt>Cliente</dt><dd>${esc(t.client)}</dd>` : ''}
+          ${t.client ? `<dt>Cliente</dt><dd>${esc(t.client)}${t.client_id ? ` · <span class="muted small">con acceso: ${esc(t.client_email || '')}</span>` : ''}</dd>` : ''}
           ${t.cargo ? `<dt>Carga</dt><dd>${esc(t.cargo)}</dd>` : ''}
           ${t.notes ? `<dt>Notas</dt><dd>${esc(t.notes)}</dd>` : ''}
           <dt>Inició</dt><dd>${esc(fmtDate(t.started_at, true))}</dd>
           <dt>Cargado</dt><dd>${esc(fmtDate(t.loaded_at, true))}</dd>
           <dt>Salió a destino</dt><dd>${esc(fmtDate(t.departed_at, true))}</dd>
-          <dt>Finalizó</dt><dd>${esc(fmtDate(t.finished_at, true))}</dd>
+          <dt>Llegó a entregar</dt><dd>${esc(fmtDate(t.arrived_at, true))}</dd>
+          <dt>Entregado</dt><dd>${esc(fmtDate(t.finished_at, true))}</dd>
+          ${t.received_by ? `<dt>Recibió</dt><dd><b>${esc(t.received_by)}</b></dd>` : ''}
         </dl>
       </div>
       <div>
@@ -333,48 +353,83 @@ $('#detail-dialog').addEventListener('close', () => {
   if (location.hash) history.replaceState(null, '', location.pathname);
 });
 
-// ---------- Choferes ----------
+// ---------- Usuarios: superadministrador, personal de AN, choferes y clientes ----------
+const ROLE_HELP = {
+  superadmin: 'Dueño de la cuenta: controla todo, incluido el personal, los datos de la empresa y las tarifas.',
+  admin: 'Personal de AN: viajes, choferes, clientes, vehículos, pagos y cotizaciones.',
+  driver: 'Chofer: ve sus viajes y registra cada etapa con fotos.',
+  client: 'Cliente: sigue sus envíos y ve las fotos y la prueba de entrega.',
+};
+
 async function loadUsers() {
   users = await api('/users');
   fillSelects();
-  $('#users-body').innerHTML = users
-    .map(
-      (u) => `
+  const filter = $('#u-role').value;
+  const rows = users.filter((u) => !filter || u.role === filter);
+  $('#users-body').innerHTML = rows.length
+    ? rows
+        .map(
+          (u) => `
       <tr class="clickable" data-id="${u.id}">
-        <td><b>${esc(u.name)}</b></td>
+        <td><b>${esc(u.name)}</b>${u.company ? `<div class="muted small">${esc(u.company)}</div>` : ''}</td>
         <td>${esc(u.email)}</td>
         <td>${u.phone ? `<a href="tel:${esc(u.phone)}">${esc(u.phone)}</a>` : '—'}</td>
-        <td>${u.role === 'admin' ? 'Administrador' : 'Chofer'}</td>
+        <td><span class="badge role-${u.role}">${esc(ROLE_LABEL[u.role] || u.role)}</span></td>
         <td>${u.push_devices ? `🔔 ${u.push_devices} dispositivo(s)` : '<span class="muted">Solo correo</span>'}</td>
         <td class="num">${u.open_trips}</td>
         <td>${u.active ? 'Activo' : '<span class="muted">Inactivo</span>'}</td>
       </tr>`
-    )
-    .join('');
+        )
+        .join('')
+    : '<tr><td colspan="7" class="empty">No hay usuarios con este perfil.</td></tr>';
 }
+$('#u-role').onchange = loadUsers;
 
 $('#users-body').addEventListener('click', (e) => {
   const row = e.target.closest('tr[data-id]');
-  if (row) openUserForm(users.find((u) => u.id === Number(row.dataset.id)));
+  if (!row) return;
+  const user = users.find((u) => u.id === Number(row.dataset.id));
+  const self = user.id === me.id;
+  if (!self && (user.role === 'superadmin' || (user.role === 'admin' && me.role !== 'superadmin'))) {
+    toast('Solo el superadministrador puede modificar al personal de AN.');
+    return;
+  }
+  openUserForm(user);
 });
 $('#new-user').onclick = () => openUserForm(null);
+
+function syncRoleFields() {
+  const form = $('#user-form');
+  const role = form.role.value;
+  $('#user-company-row').classList.toggle('hidden', role !== 'client');
+  $('#user-role-help').textContent = ROLE_HELP[role] || '';
+}
+$('#user-form [name=role]').addEventListener('change', syncRoleFields);
 
 function openUserForm(user) {
   editingUser = user;
   const form = $('#user-form');
   form.reset();
   form.querySelector('.msg').innerHTML = '';
-  $('#user-form-title').textContent = user ? `Editar ${user.name}` : 'Nuevo chofer';
+  $('#user-form-title').textContent = user ? `Editar ${user.name}` : 'Nuevo usuario';
+  const self = user && user.id === me.id;
+  // El propio perfil (y el del superadministrador) no se cambia desde aquí.
+  const roleSelect = form.role;
+  roleSelect.querySelector('option[value=superadmin]')?.remove();
+  if (user?.role === 'superadmin') roleSelect.add(new Option(ROLE_LABEL.superadmin, 'superadmin'));
+  roleSelect.value = user?.role || 'driver';
+  roleSelect.disabled = Boolean(self);
   form.elements.name.value = user?.name || '';
+  form.company.value = user?.company || '';
   form.email.value = user?.email || '';
   form.phone.value = user?.phone || '';
-  form.role.value = user?.role || 'driver';
   form.password.value = user ? '' : randomPassword();
   form.password.required = !user;
   $('#user-password-label').textContent = user ? 'Nueva contraseña (déjala vacía para no cambiarla)' : 'Contraseña inicial (mínimo 8 caracteres)';
   $('#user-welcome-row').classList.toggle('hidden', Boolean(user));
-  $('#user-active-row').classList.toggle('hidden', !user);
+  $('#user-active-row').classList.toggle('hidden', !user || self);
   form.active.checked = user ? Boolean(user.active) : true;
+  syncRoleFields();
   $('#user-dialog').showModal();
 }
 
@@ -391,12 +446,13 @@ $('#user-form').addEventListener('submit', async (e) => {
     name: form.elements.name.value,
     email: form.email.value,
     phone: form.phone.value,
-    role: form.role.value,
+    company: form.company.value,
     password: form.password.value || undefined,
   };
+  if (!form.role.disabled) body.role = form.role.value;
   try {
     if (editingUser) {
-      body.active = form.active.checked;
+      if (editingUser.id !== me.id) body.active = form.active.checked;
       await api(`/users/${editingUser.id}`, { method: 'PUT', body });
     } else {
       body.sendWelcome = form.sendWelcome.checked;

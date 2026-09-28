@@ -91,17 +91,32 @@ Cada recibo tiene folio (`P-00001` para pagos semanales y `B-00001` para bonos),
 ## Flujo del viaje
 
 ```
-Asignado ──(foto odómetro)──▶ Rumbo a cargar / cargando ──▶ Cargado (en espera) ──▶ En ruta ──(foto odómetro)──▶ Finalizado
+Asignado ─(foto odómetro)─▶ Rumbo a cargar ─▶ Cargado (en espera) ─(foto de la carga)─▶ En ruta
+         ─(foto de llegada)─▶ En el punto de entrega ─(prueba de entrega + odómetro)─▶ Entregado
 ```
 
-| Paso | Qué hace el chofer |
-|---|---|
-| **Iniciar viaje** | Foto del odómetro + lectura, antes de arrancar hacia la recolección |
-| **Terminé de cargar** | Al terminar de subir la mercancía. El viaje puede quedarse “Cargado” horas o días |
-| **Salir rumbo al destino** | Cuando arranca el viaje oficial (por ejemplo, al día siguiente) |
-| **Finalizar viaje** | Foto del odómetro + lectura al entregar |
+| Paso | Qué hace el chofer | Fotos que quedan en la plataforma |
+|---|---|---|
+| **Iniciar viaje** | Antes de arrancar hacia la recolección | Odómetro + lectura |
+| **Terminé de cargar** | Al terminar de subir la mercancía. El viaje puede quedarse “Cargado” horas o días | — |
+| **Salir rumbo al destino** | Cuando arranca el viaje oficial (por ejemplo, al día siguiente) | **Foto de la carga** |
+| **Llegué al punto de entrega** | Al llegar al destino | **Foto de llegada** |
+| **Entregar** | Al entregar | **Prueba de entrega** (1 a 3 fotos), **nombre de quien recibe**, **firma** en pantalla (opcional) y odómetro final |
+
+Cada foto guarda fecha, hora y la ubicación del celular (si el chofer da permiso). El personal ve todas las fotos en el detalle del viaje. El cliente ve las de carga, llegada, entrega y firma, pero no las del odómetro ni los tickets de combustible.
 
 Así se cubre el caso de **cargar un día y salir al siguiente**: los km recorridos cuentan desde que el chofer sale a cargar hasta que entrega.
+
+## Perfiles de usuario
+
+| Perfil | Qué puede hacer |
+|---|---|
+| **Superadministrador** (correo maestro) | Todo. Es la cuenta que se crea en la configuración inicial. Da de alta y modifica al personal de AN, los datos de la empresa y las tarifas. No se puede desactivar ni cambiar de perfil. |
+| **Personal de AN** | Viajes, choferes, clientes, vehículos, pagos, rendimiento y cotizaciones. |
+| **Chofer** | Ve sus viajes y registra cada etapa con fotos, combustible y notas. Ve sus recibos de pago. |
+| **Cliente** | Entra a `/cliente.html`: sigue sus envíos en curso y su historial, con las fotos de carga, llegada y prueba de entrega. Recibe correo y notificación cuando su envío se programa, sale, llega y se entrega. |
+
+Los usuarios se crean en el panel → **Usuarios** → **Nuevo usuario**, eligiendo el perfil. Al crear un viaje, se elige el **cliente con acceso** para que lo vea en su portal. Si la plataforma ya estaba en uso, al actualizar el primer administrador pasa a ser el superadministrador y se conservan todos los datos.
 
 ### Cálculo del rendimiento
 
@@ -247,6 +262,7 @@ public/
   chofer.html pantalla del chofer
   login.html  inicio de sesión / configuración inicial
   admin.html  panel del administrador (js/admin.js, js/admin-payments.js, js/admin-site.js)
+  cliente.html portal del cliente (js/client.js)
   img/        logotipo
   sw.js       service worker (instalación y notificaciones)
 test/         pruebas automáticas

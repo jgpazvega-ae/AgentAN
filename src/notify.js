@@ -199,9 +199,39 @@ async function notifyDriverAboutPayment(p) {
   for (const r of results) if (r.status === 'rejected') console.error('Aviso de pago falló:', r.reason?.message || r.reason);
 }
 
+// Avisa al cliente (correo y push) del avance de su envío.
+const CLIENT_NOTICES = {
+  programado: (t) => [`Tu envío #${t.id} está programado`, `Recolección: ${formatLocal(t.pickup_at)} en ${t.pickup_address}. Destino: ${t.dest_address}.`],
+  en_camino: (t) => [`Tu envío #${t.id} va en camino`, `Salió rumbo a ${t.dest_address}${t.delivery_at ? `. Entrega programada: ${formatLocal(t.delivery_at)}` : ''}.`],
+  llegada: (t) => [`Tu envío #${t.id} llegó al punto de entrega`, `El chofer ya está en ${t.dest_address}.`],
+  entregado: (t) => [`Tu envío #${t.id} fue entregado`, `Recibió: ${t.received_by || '—'}. Puedes ver las fotos de la prueba de entrega en la plataforma.`],
+  cancelado: (t) => [`Tu envío #${t.id} fue cancelado`, `${t.pickup_address} → ${t.dest_address}.`],
+};
+
+async function notifyClientAboutTrip(trip, kind) {
+  if (!trip.client_id || !CLIENT_NOTICES[kind]) return;
+  const [subject, body] = CLIENT_NOTICES[kind](trip);
+  const link = `${config.appUrl}/cliente.html#viaje-${trip.id}`;
+  const results = await Promise.allSettled([
+    trip.client_email &&
+      sendEmail({
+        to: trip.client_email,
+        subject,
+        text: `Hola ${trip.client_name || ''},\n\n${body}\n\nSigue tu envío en: ${link}\n\n${getSite().name}`,
+        html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#1f2937">
+          <h2 style="color:#13294b">${escapeHtml(subject)}</h2>
+          <p>Hola ${escapeHtml(trip.client_name || '')},</p><p>${escapeHtml(body)}</p>
+          <p><a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 18px;background:#13294b;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">Ver mi envío</a></p>
+          <p style="color:#9ca3af;font-size:12px">${escapeHtml(getSite().name)}</p></div>`,
+      }),
+    sendPush(trip.client_id, { title: subject, body, url: `/cliente.html#viaje-${trip.id}`, tag: `envio-${trip.id}` }),
+  ]);
+  for (const r of results) if (r.status === 'rejected') console.error('Aviso al cliente falló:', r.reason?.message || r.reason);
+}
+
 // Avisa a los administradores (solo push) cuando el chofer avanza el viaje.
 async function notifyAdmins(title, body, url) {
-  const admins = all("SELECT id FROM users WHERE role = 'admin' AND active = 1");
+  const admins = all("SELECT id FROM users WHERE role IN ('superadmin', 'admin') AND active = 1");
   await Promise.allSettled(admins.map((a) => sendPush(a.id, { title, body, url, tag: url })));
 }
 
@@ -212,6 +242,7 @@ module.exports = {
   vapidPublicKey,
   notifyDriverAboutTrip,
   notifyDriverAboutPayment,
+  notifyClientAboutTrip,
   notifyAdmins,
   formatLocal,
   mapsLink,
