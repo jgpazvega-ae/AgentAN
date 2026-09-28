@@ -207,6 +207,10 @@ La app es un solo proceso de Node con una base de datos SQLite en un archivo, as
   Pon delante un proxy con HTTPS (Caddy es lo más sencillo: `caddy reverse-proxy --from viajes.tuempresa.com --to :3000`).
 - **Render / Railway / Fly.io**: crea el servicio desde este repositorio (usa el `Dockerfile`), agrega un **disco/volumen persistente** montado en `/data` y define las variables de entorno.
 
+## Agente de WhatsApp con IA
+
+La carpeta [`whatsapp-agent/`](whatsapp-agent/README.md) contiene el agente que responde mensajes de WhatsApp automáticamente con Claude (Python + FastAPI, WhatsApp Cloud API de Meta). Es un servicio independiente de esta plataforma: tiene su propio `.env`, `Dockerfile` y `docker-compose.yml`, y corre en el puerto 8000 (la plataforma usa el 3000). Instrucciones en [`whatsapp-agent/README.md`](whatsapp-agent/README.md).
+
 ## Estructura
 
 ```
@@ -230,4 +234,5 @@ public/
   img/        logotipo
   sw.js       service worker (instalación y notificaciones)
 test/         pruebas automáticas
+whatsapp-agent/  agente de WhatsApp con IA (Python, independiente)
 ```
