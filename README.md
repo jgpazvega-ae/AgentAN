@@ -36,12 +36,14 @@ La distancia es por carretera y solo de ida (la tarifa por km ya considera el re
 
 Propuesta inicial (se ajusta en el panel → **Empresa → Tarifas del cotizador**, con una tabla de ejemplos que se recalcula al escribir):
 
-| Unidad | Base (hasta 40 km) | $ por km adicional | León (~171 km) | Puebla (~335 km) |
-|---|---:|---:|---:|---:|
-| Van de carga | $1,500 | $18 | $3,850 | $6,800 |
-| Camioneta 3.5 t | $1,500 | $26 | $4,900 | $9,150 |
-| Chevrolet Traverse / Toyota Sienna | $1,500 | $15 | $3,450 | $5,950 |
-| Unidad grande | cotización especial | | | |
+| Unidad | Base (hasta 40 km) | $ por km adicional | León (~171 km) | Puebla (~335 km) | Monterrey (~690 km)* |
+|---|---:|---:|---:|---:|---:|
+| Van de carga | $1,500 | $23 | $4,500 | $8,300 | $17,950 |
+| Camioneta 3.5 t | $1,500 | $31 | $5,550 | $10,650 | $23,150 |
+| Chevrolet Traverse / Toyota Sienna | $1,500 | $20 | $4,100 | $7,400 | $16,000 |
+| Unidad grande | cotización especial | | | | |
+
+\* Incluye viáticos del chofer: una noche ($1,500 de hotel y alimentos) por cada 450 km de distancia. Los montos de la tabla son con pago en efectivo o transferencia; el precio de lista (tarjeta) es 4% mayor.
 
 ### Impuestos y formas de pago
 

@@ -151,6 +151,13 @@
             <tbody id="pricing-body"></tbody>
           </table>
         </div>
+        <h3 style="margin-top:14px">Viáticos por pernocta</h3>
+        <p class="muted small">En viajes largos el chofer duerme fuera. Se cobra una noche por cada tantos km de distancia (solo ida). Pon 0 en km para no cobrar viáticos.</p>
+        <div class="grid-2">
+          <div><label>Una noche por cada (km)</label><input name="overnight_km" type="number" min="0" max="5000" step="10" style="max-width:140px"></div>
+          <div><label>Viáticos por noche $ (hotel y alimentos)</label><input name="overnight_cost" type="number" min="0" step="50" style="max-width:140px"></div>
+        </div>
+
         <h3 style="margin-top:14px">Pago con tarjeta</h3>
         <p class="muted small">En México no se puede cobrar un recargo por pagar con tarjeta. Lo permitido es un <b>precio de lista</b> igual para cualquier forma de pago y un <b>descuento</b> para efectivo o transferencia. Las tarifas de arriba son el precio con descuento; el precio de lista se calcula para cubrir la comisión de la terminal (Mercado Pago cobra alrededor de 3.5% + IVA; revisa tu plan). Pon 0 para no usar descuento.</p>
         <label>Descuento por pago en efectivo o transferencia (%)</label>

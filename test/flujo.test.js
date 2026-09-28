@@ -291,11 +291,15 @@ test('tarifas del cotizador y versión para GitHub Pages', async () => {
   const { DEFAULT_PRICING, estimate } = require('../src/pricing');
   // Base de $1,500 dentro de 40 km; después, km adicionales por unidad.
   assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 30 }).total, 1500);
-  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 171 }).total, 4900);
-  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 'van', km: 335 }).total, 6800);
+  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 171 }).total, 5550);
+  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 'van', km: 335 }).total, 8300);
+  // Monterrey: 1 noche de viáticos ($1,500) por pasar de 450 km.
+  const mty = estimate(DEFAULT_PRICING, { vehicle: 'van', km: 690 });
+  assert.equal(mty.nights, 1);
+  assert.equal(mty.total, 16450 + 1500);
   assert.equal(estimate(DEFAULT_PRICING, { vehicle: 'grande', km: 690 }), null, 'unidad grande: cotización especial');
   // Precio de lista (tarjeta): el descuento de 4% por efectivo/transferencia cubre la comisión.
-  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 171 }).list, 5110);
+  assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 171 }).list, 5790);
   assert.equal(estimate(DEFAULT_PRICING, { vehicle: 't35', km: 20 }).list, 1570);
   const { listPrice } = require('../src/pricing');
   assert.equal(listPrice({ ...DEFAULT_PRICING, cash_discount: 0 }, 4900), 4900, 'sin descuento, lista = precio');
@@ -353,6 +357,9 @@ test('impuestos del cotizador por tipo de cliente', async () => {
   assert.equal(r.data.taxes.rules.fisica.ret_iva, true, 'guardar el descuento no borra los impuestos');
   r = await admin('PUT', '/pricing', { included_km: 40, vehicles: {}, cash_discount: 30 });
   assert.equal(r.status, 400);
+  r = await admin('PUT', '/pricing', { included_km: 40, vehicles: {}, overnight_km: 400, overnight_cost: 1800 });
+  assert.equal(r.data.overnight_cost, 1800);
+  assert.equal(r.data.cash_discount, 3.5, 'guardar viáticos no borra el descuento');
   assert.deepEqual((await admin('GET', '/pricing')).data.payment_methods.length, 3);
 
   const visitor = client();

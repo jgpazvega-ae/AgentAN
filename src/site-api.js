@@ -132,7 +132,24 @@ router.put(
       cashDiscount = num(req.body.cash_discount);
       if (!(cashDiscount >= 0 && cashDiscount <= 20)) throw bad('El descuento por efectivo o transferencia debe estar entre 0 y 20%.');
     }
-    site.updatePricing({ included_km: km, vehicles: req.body.vehicles, taxes, cash_discount: cashDiscount });
+    let overnightKm;
+    let overnightCost;
+    if (req.body.overnight_km !== undefined) {
+      overnightKm = num(req.body.overnight_km);
+      if (!(overnightKm >= 0 && overnightKm <= 5000)) throw bad('Los km para pernoctar no son válidos (0 = nunca).');
+    }
+    if (req.body.overnight_cost !== undefined) {
+      overnightCost = num(req.body.overnight_cost);
+      if (!(overnightCost >= 0 && overnightCost <= 50000)) throw bad('El costo de viáticos por noche no es válido.');
+    }
+    site.updatePricing({
+      included_km: km,
+      vehicles: req.body.vehicles,
+      taxes,
+      cash_discount: cashDiscount,
+      overnight_km: overnightKm,
+      overnight_cost: overnightCost,
+    });
     res.json(site.getPricing({ keepDisabled: true }));
   })
 );

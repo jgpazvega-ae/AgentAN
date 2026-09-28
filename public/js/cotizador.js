@@ -100,7 +100,10 @@
     if (vehicle.special || km == null) return null;
     const extraKm = Math.max(0, km - P.included_km);
     const step = P.round_to || 1;
-    return { total: Math.round((vehicle.base + extraKm * vehicle.per_km) / step) * step, extraKm };
+    // Viáticos del chofer si el viaje obliga a pernoctar (misma regla que src/pricing.js).
+    const nights = P.overnight_km > 0 ? Math.floor(km / P.overnight_km) : 0;
+    const viaticos = nights * (P.overnight_cost || 0);
+    return { total: Math.round((vehicle.base + extraKm * vehicle.per_km) / step) * step + viaticos, extraKm, nights, viaticos };
   }
 
   let current = null;
@@ -141,7 +144,8 @@
       box.innerHTML = `
         <div class="est-label">Precio estimado · ${esc(vehicle.label)}</div>
         <div class="est-detail">${list !== est.total ? 'Tarifa con descuento: ' : ''}Base ${money(vehicle.base)} (hasta ${P.included_km} km)${
-          est.extraKm ? ` + ${est.extraKm} km × ${money(vehicle.per_km)}` : ''
+          (est.extraKm ? ` + ${est.extraKm} km × ${money(vehicle.per_km)}` : '') +
+          (est.nights ? ` + viáticos del chofer (${est.nights} ${est.nights === 1 ? 'noche' : 'noches'} × ${money(P.overnight_cost)})` : '')
         }</div>
         <table class="est-table">
           ${
@@ -163,7 +167,7 @@
     }
   }
 
-  $('calc-rule').textContent = `Tarifa base por unidad que incluye hasta ${P.included_km} km desde ${P.origin}. Cada km adicional (distancia por carretera, solo ida) se cobra según la unidad; la tarifa por km ya considera el regreso. Impuestos: IVA ${P.taxes.iva}%. Si eres empresa (persona moral) retienes ${P.taxes.ret_iva}% de IVA en fletes y ${P.taxes.ret_isr}% de ISR, según la ley.`;
+  $('calc-rule').textContent = `Tarifa base por unidad que incluye hasta ${P.included_km} km desde ${P.origin}. Cada km adicional (distancia por carretera, solo ida) se cobra según la unidad; la tarifa por km ya considera el regreso. En viajes largos se suman viáticos del chofer (${money(P.overnight_cost)} por noche, una noche por cada ${P.overnight_km} km). Impuestos: IVA ${P.taxes.iva}%. Si eres empresa (persona moral) retienes ${P.taxes.ret_iva}% de IVA en fletes y ${P.taxes.ret_isr}% de ISR, según la ley.`;
   $('calc-extras').innerHTML = (P.extras || []).map((x) => `<li>${esc(x)}</li>`).join('');
   render();
 

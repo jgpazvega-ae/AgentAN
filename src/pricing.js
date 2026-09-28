@@ -11,13 +11,18 @@ const DEFAULT_PRICING = {
   origin: 'Centro de Querétaro',
   included_km: 40,
   round_to: 50,
+  // Viáticos del chofer (hotel y alimentos) cuando el viaje obliga a pernoctar:
+  // una noche por cada `overnight_km` km de distancia (solo ida).
+  // Ej.: Monterrey (~690 km) → 1 noche.
+  overnight_km: 450,
+  overnight_cost: 1500,
   services: [
     {
       id: 'flete',
       label: 'Flete',
       vehicles: [
-        { id: 'van', label: 'Van de carga', note: 'Carga ligera y paquetería', base: 1500, per_km: 18 },
-        { id: 't35', label: 'Camioneta 3.5 toneladas', note: 'Sujeto a disponibilidad', base: 1500, per_km: 26 },
+        { id: 'van', label: 'Van de carga', note: 'Carga ligera y paquetería', base: 1500, per_km: 23 },
+        { id: 't35', label: 'Camioneta 3.5 toneladas', note: 'Sujeto a disponibilidad', base: 1500, per_km: 31 },
         { id: 'grande', label: 'Unidad grande (rabón / tórton)', note: 'Cotización especial según carga', special: true },
       ],
     },
@@ -25,8 +30,8 @@ const DEFAULT_PRICING = {
       id: 'ejecutivo',
       label: 'Viaje ejecutivo',
       vehicles: [
-        { id: 'traverse', label: 'Chevrolet Traverse', note: 'Hasta 6 pasajeros', base: 1500, per_km: 15 },
-        { id: 'sienna', label: 'Toyota Sienna', note: 'Hasta 7 pasajeros', base: 1500, per_km: 15 },
+        { id: 'traverse', label: 'Chevrolet Traverse', note: 'Hasta 6 pasajeros', base: 1500, per_km: 20 },
+        { id: 'sienna', label: 'Toyota Sienna', note: 'Hasta 7 pasajeros', base: 1500, per_km: 20 },
       ],
     },
   ],
@@ -54,7 +59,6 @@ const DEFAULT_PRICING = {
     'Casetas de ida y vuelta según el tipo de unidad',
     'Maniobras de carga y descarga (ayudantes)',
     'Tiempo de espera mayor a 2 horas',
-    'Viáticos del chofer cuando el viaje requiere pernoctar',
   ],
   // Impuestos (porcentajes sobre el subtotal). Reglas por tipo de cliente:
   // - Persona moral: IVA 16%; retiene 4% de IVA en autotransporte de bienes
@@ -104,8 +108,14 @@ function estimate(pricing, { vehicle, km }) {
   const extraKm = Math.max(0, km - pricing.included_km);
   const raw = v.base + extraKm * v.per_km;
   const step = pricing.round_to || 1;
-  const total = Math.round(raw / step) * step;
-  return { total, list: listPrice(pricing, total), base: v.base, extra_km: extraKm, per_km: v.per_km };
+  const nights = overnightNights(pricing, km);
+  const viaticos = nights * (pricing.overnight_cost || 0);
+  const total = Math.round(raw / step) * step + viaticos;
+  return { total, list: listPrice(pricing, total), base: v.base, extra_km: extraKm, per_km: v.per_km, nights, viaticos };
+}
+
+function overnightNights(pricing, km) {
+  return pricing.overnight_km > 0 ? Math.floor(km / pricing.overnight_km) : 0;
 }
 
 // Precio de lista a partir del precio con descuento (efectivo/transferencia).
@@ -123,6 +133,8 @@ function mergePricing(saved, { keepDisabled = false } = {}) {
   if (!saved || typeof saved !== 'object') return p;
   const pos = (n, fallback) => (Number.isFinite(Number(n)) && Number(n) >= 0 ? Number(n) : fallback);
   p.included_km = pos(saved.included_km, p.included_km);
+  if (saved.overnight_km !== undefined) p.overnight_km = pos(saved.overnight_km, p.overnight_km);
+  if (saved.overnight_cost !== undefined) p.overnight_cost = pos(saved.overnight_cost, p.overnight_cost);
   if (saved.cash_discount !== undefined) p.cash_discount = Math.min(20, pos(saved.cash_discount, p.cash_discount));
   if (saved.taxes && typeof saved.taxes === 'object') {
     for (const k of ['iva', 'ret_iva', 'ret_isr']) p.taxes[k] = pos(saved.taxes[k], p.taxes[k]);
@@ -148,4 +160,4 @@ function mergePricing(saved, { keepDisabled = false } = {}) {
   return p;
 }
 
-module.exports = { DEFAULT_PRICING, estimate, listPrice, mergePricing, taxBreakdown };
+module.exports = { DEFAULT_PRICING, estimate, listPrice, overnightNights, mergePricing, taxBreakdown };
