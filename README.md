@@ -43,6 +43,20 @@ Propuesta inicial (se ajusta en el panel → **Empresa → Tarifas del cotizador
 | Chevrolet Traverse / Toyota Sienna | $1,500 | $15 | $3,450 | $5,950 |
 | Unidad grande | cotización especial | | | |
 
+### Impuestos y formas de pago
+
+El cliente elige si es **persona física** o **empresa (persona moral)** y ve el desglose:
+
+| | Persona física | Persona moral |
+|---|---|---|
+| IVA 16% | se suma | se suma |
+| Retención de IVA 4% (solo fletes: art. 1-A fr. II inciso c LIVA) | — | se resta |
+| Retención de ISR 1.25% (transportista persona física en RESICO: art. 113-J LISR) | — | se resta |
+
+Ejemplo León en 3.5 t (subtotal $4,900): persona física **$5,684.00**; persona moral $4,900 + $784 − $196 − $61.25 = **$5,426.75**. En viajes ejecutivos (transporte de personas) no aplica la retención de IVA de fletes. Los porcentajes y a quién aplican se ajustan en el panel → Empresa → Tarifas; confírmalos con tu contador.
+
+Formas de pago que se muestran: efectivo, transferencia y tarjeta de crédito o débito (terminal Mercado Pago). El cliente indica su preferida en la solicitud.
+
 La lista de destinos con sus distancias aproximadas está en `src/pricing.js`. Si el cliente elige “Otro destino”, puede escribir los km. Cada solicitud guarda la unidad y el precio estimado que vio el cliente.
 
 ## Recibos de pago

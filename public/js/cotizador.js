@@ -9,6 +9,30 @@
 
   let service = P.services[0];
   let vehicle = service.vehicles[0];
+  let clientType = 'fisica';
+
+  // Impuestos según el tipo de cliente (misma regla que src/pricing.js).
+  const round2 = (n) => Math.round(n * 100) / 100;
+  function taxBreakdown(subtotal) {
+    const t = P.taxes;
+    const rule = t.rules[clientType];
+    const lines = [];
+    if (rule.iva) lines.push({ label: `IVA ${t.iva}%`, amount: round2((subtotal * t.iva) / 100) });
+    if (rule.ret_iva && t.ret_iva_services.includes(service.id)) lines.push({ label: `Retención de IVA ${t.ret_iva}%`, amount: -round2((subtotal * t.ret_iva) / 100) });
+    if (rule.ret_isr) lines.push({ label: `Retención de ISR ${t.ret_isr}%`, amount: -round2((subtotal * t.ret_isr) / 100) });
+    return { lines, total: round2(subtotal + lines.reduce((sum, l) => sum + l.amount, 0)) };
+  }
+  const money2 = (n) => `${n < 0 ? '−' : ''}$${Math.abs(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  $('client-tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-client]');
+    if (!b) return;
+    clientType = b.dataset.client;
+    render();
+  });
+  const methods = P.payment_methods || [];
+  $('pay-methods').innerHTML = methods.length ? `<b>Aceptamos:</b> ${methods.map(esc).join(' · ')}` : '';
+  $('pay-select').innerHTML = '<option value="">— Elige —</option>' + methods.map((m) => `<option>${esc(m)}</option>`).join('');
 
   // ---------- Tipo de servicio y unidad ----------
   $('svc-tabs').innerHTML = P.services
@@ -66,6 +90,9 @@
   let current = null;
   function render() {
     [...$('svc-tabs').children].forEach((b) => b.classList.toggle('active', b.dataset.svc === service.id));
+    [...$('client-tabs').children].forEach((b) => b.classList.toggle('active', b.dataset.client === clientType));
+    const companyInput = document.querySelector('#quote-form [name=company]');
+    companyInput.previousSibling.textContent = clientType === 'moral' ? 'Razón social*' : 'Empresa';
     $('vehicles').innerHTML = service.vehicles
       .map(
         (v) => `<button type="button" data-veh="${esc(v.id)}" class="${v.id === vehicle.id ? 'active' : ''}">
@@ -79,7 +106,8 @@
 
     const km = distance();
     const est = estimate(km);
-    current = { service: service.label, vehicle: vehicle.label, km, estimate: est ? est.total : null };
+    const taxes = est ? taxBreakdown(est.total) : null;
+    current = { service: service.label, vehicle: vehicle.label, km, estimate: est ? est.total : null, client_type: clientType, total: taxes ? taxes.total : null };
     const box = $('estimate');
     if (vehicle.special) {
       box.innerHTML = `<div class="est-special">Las unidades grandes se cotizan según el volumen, peso y maniobras de la carga. Envíanos tu solicitud y te respondemos con el precio.</div>`;
@@ -88,14 +116,23 @@
     } else {
       box.innerHTML = `
         <div class="est-label">Precio estimado · ${esc(vehicle.label)}</div>
-        <div class="est-total">${money(est.total)} <small>MXN + IVA</small></div>
         <div class="est-detail">Base ${money(vehicle.base)} (hasta ${P.included_km} km)${
           est.extraKm ? ` + ${est.extraKm} km × ${money(vehicle.per_km)}` : ''
-        } · casetas aparte</div>`;
+        }</div>
+        <table class="est-table">
+          <tr><td>Subtotal</td><td>${money2(est.total)}</td></tr>
+          ${taxes.lines.map((l) => `<tr class="${l.amount < 0 ? 'minus' : ''}"><td>${esc(l.label)}</td><td>${money2(l.amount)}</td></tr>`).join('')}
+          <tr class="grand"><td>Total a pagar</td><td>${money2(taxes.total)} <small>MXN</small></td></tr>
+        </table>
+        <div class="est-detail">${
+          clientType === 'moral' && taxes.lines.some((l) => l.amount < 0)
+            ? 'Las retenciones las entera tu empresa al SAT y se reflejan en la factura. '
+            : ''
+        }Casetas aparte.</div>`;
     }
   }
 
-  $('calc-rule').textContent = `Tarifa base por unidad que incluye hasta ${P.included_km} km desde ${P.origin}. Cada km adicional (distancia por carretera, solo ida) se cobra según la unidad; la tarifa por km ya considera el regreso.`;
+  $('calc-rule').textContent = `Tarifa base por unidad que incluye hasta ${P.included_km} km desde ${P.origin}. Cada km adicional (distancia por carretera, solo ida) se cobra según la unidad; la tarifa por km ya considera el regreso. Impuestos: IVA ${P.taxes.iva}%. Si eres empresa (persona moral) retienes ${P.taxes.ret_iva}% de IVA en fletes y ${P.taxes.ret_isr}% de ISR, según la ley.`;
   $('calc-extras').innerHTML = (P.extras || []).map((x) => `<li>${esc(x)}</li>`).join('');
   render();
 
@@ -108,7 +145,9 @@
     return [
       `Solicitud de cotización · ${current.service}`,
       `Unidad: ${current.vehicle}`,
-      current.estimate ? `Estimado en la página: ${money(current.estimate)} + IVA (${current.km} km)` : '',
+      current.estimate ? `Estimado en la página: subtotal ${money(current.estimate)}, total con impuestos ${money2(current.total)} (${current.km} km)` : '',
+      `Cliente: ${clientType === 'moral' ? 'Persona moral (empresa)' : 'Persona física'}`,
+      d.payment_method && `Forma de pago: ${d.payment_method}`,
       `Nombre: ${d.name}`,
       d.company && `Empresa: ${d.company}`,
       d.phone && `Teléfono: ${d.phone}`,
@@ -129,6 +168,7 @@
     msg.className = 'err';
     if (!d.name.trim()) return (msg.textContent = 'Escribe tu nombre.');
     if (!d.phone.trim() && !d.email.trim()) return (msg.textContent = 'Déjanos un teléfono o correo para contactarte.');
+    if (clientType === 'moral' && !d.company.trim()) return (msg.textContent = 'Escribe la razón social de tu empresa.');
 
     // Versión estática (GitHub Pages): no hay servidor, se envía por WhatsApp o correo.
     if (data.static) {
@@ -148,7 +188,7 @@
       const res = await fetch('/api/quotes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...d, service: current.service, vehicle: current.vehicle, km: current.km, estimate: current.estimate }),
+        body: JSON.stringify({ ...d, service: current.service, vehicle: current.vehicle, km: current.km, estimate: current.estimate, client_type: clientType, total: current.total }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(out.error || 'No se pudo enviar. Inténtalo de nuevo.');

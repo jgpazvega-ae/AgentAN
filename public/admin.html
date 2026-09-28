@@ -151,6 +151,18 @@
             <tbody id="pricing-body"></tbody>
           </table>
         </div>
+        <h3 style="margin-top:14px">Impuestos</h3>
+        <p class="muted small">Porcentajes sobre el subtotal. La retención de IVA solo aplica a fletes (transporte de bienes). La de ISR 1.25% aplica cuando facturas como persona física en RESICO a una empresa. Confírmalo con tu contador.</p>
+        <div class="table-wrap">
+          <table class="list" id="tax-table">
+            <thead><tr><th>Concepto</th><th class="num">%</th><th>Persona física</th><th>Persona moral</th></tr></thead>
+            <tbody>
+              <tr><td>IVA (se suma)</td><td class="num"><input data-tax="iva" type="number" min="0" max="50" step="0.01" style="width:80px"></td><td><input type="checkbox" data-rule="fisica.iva" style="width:auto"></td><td><input type="checkbox" data-rule="moral.iva" style="width:auto"></td></tr>
+              <tr><td>Retención de IVA (se resta, solo fletes)</td><td class="num"><input data-tax="ret_iva" type="number" min="0" max="50" step="0.01" style="width:80px"></td><td><input type="checkbox" data-rule="fisica.ret_iva" style="width:auto"></td><td><input type="checkbox" data-rule="moral.ret_iva" style="width:auto"></td></tr>
+              <tr><td>Retención de ISR (se resta)</td><td class="num"><input data-tax="ret_isr" type="number" min="0" max="50" step="0.01" style="width:80px"></td><td><input type="checkbox" data-rule="fisica.ret_isr" style="width:auto"></td><td><input type="checkbox" data-rule="moral.ret_isr" style="width:auto"></td></tr>
+            </tbody>
+          </table>
+        </div>
         <h3 style="margin-top:14px">Ejemplos con estas tarifas</h3>
         <div class="table-wrap" id="pricing-examples"></div>
         <div class="msg"></div>

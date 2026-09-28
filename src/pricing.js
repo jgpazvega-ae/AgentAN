@@ -4,7 +4,8 @@
 // Fórmula: precio = base + max(0, km − km_incluidos) × tarifa_por_km
 // (km por carretera desde el centro de Querétaro hasta el destino, solo ida;
 //  la tarifa por km ya considera el regreso de la unidad).
-// No incluye casetas, maniobras, esperas, viáticos ni IVA.
+// No incluye casetas, maniobras, esperas ni viáticos. Los impuestos se
+// calculan aparte según el tipo de cliente (ver `taxes` y taxBreakdown()).
 
 const DEFAULT_PRICING = {
   origin: 'Centro de Querétaro',
@@ -54,9 +55,41 @@ const DEFAULT_PRICING = {
     'Maniobras de carga y descarga (ayudantes)',
     'Tiempo de espera mayor a 2 horas',
     'Viáticos del chofer cuando el viaje requiere pernoctar',
-    'IVA',
   ],
+  // Impuestos (porcentajes sobre el subtotal). Reglas por tipo de cliente:
+  // - Persona moral: IVA 16%; retiene 4% de IVA en autotransporte de bienes
+  //   (art. 1-A fr. II inciso c LIVA, solo fletes) y 1.25% de ISR cuando el
+  //   transportista es persona física en RESICO (art. 113-J LISR).
+  // - Persona física: IVA 16%, sin retenciones.
+  // Confírmalo con tu contador; se puede ajustar en el panel.
+  taxes: {
+    iva: 16,
+    ret_iva: 4,
+    ret_isr: 1.25,
+    rules: {
+      fisica: { iva: true, ret_iva: false, ret_isr: false },
+      moral: { iva: true, ret_iva: true, ret_isr: true },
+    },
+    ret_iva_services: ['flete'], // la retención de 4% es solo para transporte de bienes
+  },
+  payment_methods: ['Efectivo', 'Transferencia', 'Tarjeta de crédito o débito (terminal Mercado Pago)'],
 };
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// Desglose de impuestos: subtotal → IVA → retenciones → total a pagar.
+function taxBreakdown(pricing, { subtotal, clientType, service }) {
+  const t = pricing.taxes;
+  const rule = t.rules[clientType] || t.rules.fisica;
+  const lines = [];
+  if (rule.iva) lines.push({ key: 'iva', label: `IVA ${t.iva}%`, amount: round2((subtotal * t.iva) / 100) });
+  if (rule.ret_iva && t.ret_iva_services.includes(service)) {
+    lines.push({ key: 'ret_iva', label: `Retención de IVA ${t.ret_iva}%`, amount: -round2((subtotal * t.ret_iva) / 100) });
+  }
+  if (rule.ret_isr) lines.push({ key: 'ret_isr', label: `Retención de ISR ${t.ret_isr}%`, amount: -round2((subtotal * t.ret_isr) / 100) });
+  const total = round2(subtotal + lines.reduce((sum, l) => sum + l.amount, 0));
+  return { subtotal, lines, total };
+}
 
 function estimate(pricing, { vehicle, km }) {
   const v = pricing.services.flatMap((s) => s.vehicles).find((x) => x.id === vehicle);
@@ -74,6 +107,14 @@ function mergePricing(saved, { keepDisabled = false } = {}) {
   if (!saved || typeof saved !== 'object') return p;
   const pos = (n, fallback) => (Number.isFinite(Number(n)) && Number(n) >= 0 ? Number(n) : fallback);
   p.included_km = pos(saved.included_km, p.included_km);
+  if (saved.taxes && typeof saved.taxes === 'object') {
+    for (const k of ['iva', 'ret_iva', 'ret_isr']) p.taxes[k] = pos(saved.taxes[k], p.taxes[k]);
+    for (const who of ['fisica', 'moral']) {
+      for (const k of ['iva', 'ret_iva', 'ret_isr']) {
+        if (typeof saved.taxes.rules?.[who]?.[k] === 'boolean') p.taxes.rules[who][k] = saved.taxes.rules[who][k];
+      }
+    }
+  }
   for (const s of p.services) {
     for (const v of s.vehicles) {
       const o = saved.vehicles?.[v.id];
@@ -90,4 +131,4 @@ function mergePricing(saved, { keepDisabled = false } = {}) {
   return p;
 }
 
-module.exports = { DEFAULT_PRICING, estimate, mergePricing };
+module.exports = { DEFAULT_PRICING, estimate, mergePricing, taxBreakdown };

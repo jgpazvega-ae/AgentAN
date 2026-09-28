@@ -79,7 +79,11 @@ function getPricing(opts) {
 // input: { included_km, vehicles: { van: { base, per_km, enabled }, ... } }
 function updatePricing(input) {
   const saved = savedPricing() || {};
-  const next = { included_km: input.included_km ?? saved.included_km, vehicles: { ...(saved.vehicles || {}) } };
+  const next = {
+    included_km: input.included_km ?? saved.included_km,
+    vehicles: { ...(saved.vehicles || {}) },
+    taxes: input.taxes || saved.taxes,
+  };
   for (const [id, v] of Object.entries(input.vehicles || {})) {
     next.vehicles[id] = { base: Number(v.base), per_km: Number(v.per_km), enabled: v.enabled !== false };
   }

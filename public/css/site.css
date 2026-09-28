@@ -122,3 +122,13 @@ h3 { font-size: 1.1rem; }
 .small-print { margin-top: 12px; font-size: .85rem; color: var(--muted); }
 .small-print summary { cursor: pointer; font-weight: 600; color: var(--navy); }
 .form h3 { margin-top: 0; }
+.calc .seg { margin-bottom: 4px; }
+.est-table { width: 100%; border-collapse: collapse; margin: 8px 0 6px; font-variant-numeric: tabular-nums; }
+.est-table td { padding: 3px 0; font-size: .95rem; }
+.est-table td:last-child { text-align: right; }
+.est-table tr.minus td { color: #fca5a5; }
+.est-table tr.grand td { border-top: 1px solid rgb(255 255 255 / .3); padding-top: 8px; font-size: 1.35rem; font-weight: 800; }
+.est-table tr.grand small { font-size: .8rem; font-weight: 600; opacity: .8; }
+.pay-methods { margin-top: 12px; font-size: .9rem; color: var(--muted); background: var(--soft); border-radius: 10px; padding: 10px 12px; }
+.pay-methods b { color: var(--navy); }
+.form select { display: block; width: 100%; margin-top: 4px; font: inherit; padding: 10px 12px; border: 1px solid #cfd6e2; border-radius: 10px; background: #fff; color: var(--ink); }

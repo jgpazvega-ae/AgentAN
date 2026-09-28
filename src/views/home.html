@@ -73,9 +73,9 @@
             <p>Nuestros choferes registran cada etapa: recolección, carga, salida y entrega.</p>
           </article>
           <article class="card">
-            <div class="ico">🤝</div>
-            <h3>Atención directa</h3>
-            <p>Cotiza con nosotros por teléfono, WhatsApp o con el formulario de esta página.</p>
+            <div class="ico">💳</div>
+            <h3>Formas de pago</h3>
+            <p>Efectivo, transferencia y tarjeta de crédito o débito con terminal Mercado Pago. Facturamos a personas físicas y empresas.</p>
           </article>
         </div>
       </div>
@@ -105,7 +105,13 @@
               <label for="dest-km">Distancia aproximada por carretera (km, solo ida)</label>
               <input id="dest-km" type="number" min="0" step="1" inputmode="numeric" placeholder="Opcional">
             </div>
+            <label>Tipo de cliente</label>
+            <div class="seg" role="tablist" id="client-tabs">
+              <button type="button" data-client="fisica" class="active">Persona física</button>
+              <button type="button" data-client="moral">Empresa (persona moral)</button>
+            </div>
             <div class="estimate" id="estimate" aria-live="polite"></div>
+            <div class="pay-methods" id="pay-methods"></div>
             <details class="small-print">
               <summary>¿Cómo se calcula?</summary>
               <p id="calc-rule"></p>
@@ -127,6 +133,7 @@
               <label>Fecha deseada<input name="service_date" type="date"></label>
               <label><span id="cargo-label">Carga</span><input name="cargo" maxlength="500" id="cargo-input" placeholder="Ej. 10 tarimas, 3 toneladas"></label>
             </div>
+            <label>Forma de pago<select name="payment_method" id="pay-select"></select></label>
             <label>Comentarios<textarea name="message" maxlength="2000" rows="3"></textarea></label>
             <label class="hp" aria-hidden="true">No llenar<input name="website" tabindex="-1" autocomplete="off"></label>
             <div id="quote-msg" role="status"></div>

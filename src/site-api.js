@@ -51,15 +51,19 @@ router.post(
       vehicle: str(req.body.vehicle, 80),
       km: num(req.body.km),
       estimate: num(req.body.estimate),
+      client_type: req.body.client_type === 'moral' ? 'moral' : req.body.client_type === 'fisica' ? 'fisica' : null,
+      payment_method: str(req.body.payment_method, 80),
+      total: num(req.body.total),
     };
     if (!q.name) throw bad('Escribe tu nombre.');
     if (!q.phone && !q.email) throw bad('Déjanos un teléfono o correo para contactarte.');
     if (q.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(q.email)) throw bad('El correo no es válido.');
     const id = Number(
       run(
-        `INSERT INTO quote_requests (name, company, phone, email, origin, destination, service_date, cargo, message, service, vehicle, km, estimate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        q.name, q.company, q.phone, q.email, q.origin, q.destination, q.service_date, q.cargo, q.message, q.service, q.vehicle, q.km, q.estimate
+        `INSERT INTO quote_requests (name, company, phone, email, origin, destination, service_date, cargo, message, service, vehicle, km, estimate, client_type, payment_method, total)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        q.name, q.company, q.phone, q.email, q.origin, q.destination, q.service_date, q.cargo, q.message, q.service, q.vehicle, q.km, q.estimate,
+        q.client_type, q.payment_method, q.total
       ).lastInsertRowid
     );
 
@@ -68,7 +72,9 @@ router.post(
     const lines = [
       ['Servicio', q.service],
       ['Unidad', q.vehicle],
-      ['Estimado mostrado al cliente', q.estimate != null ? `$${q.estimate.toLocaleString('es-MX')} + IVA (${q.km} km)` : null],
+      ['Estimado mostrado al cliente', q.estimate != null ? `Subtotal $${q.estimate.toLocaleString('es-MX')} (${q.km} km)${q.total != null ? ` · total con impuestos $${q.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : ''}` : null],
+      ['Tipo de cliente', q.client_type && (q.client_type === 'moral' ? 'Persona moral (empresa)' : 'Persona física')],
+      ['Forma de pago preferida', q.payment_method],
       ['Nombre', q.name],
       ['Empresa', q.company],
       ['Teléfono', q.phone],
@@ -105,7 +111,21 @@ router.put(
     for (const [id, v] of Object.entries(req.body.vehicles || {})) {
       if (!(num(v.base) >= 0) || !(num(v.per_km) >= 0)) throw bad(`Revisa la tarifa de ${id}.`);
     }
-    site.updatePricing({ included_km: km, vehicles: req.body.vehicles });
+    let taxes;
+    if (req.body.taxes) {
+      const t = req.body.taxes;
+      for (const k of ['iva', 'ret_iva', 'ret_isr']) {
+        if (!(num(t[k]) >= 0 && num(t[k]) <= 50)) throw bad('Revisa los porcentajes de impuestos.');
+      }
+      const flag = (who, k) => Boolean(t.rules?.[who]?.[k]);
+      taxes = {
+        iva: num(t.iva),
+        ret_iva: num(t.ret_iva),
+        ret_isr: num(t.ret_isr),
+        rules: Object.fromEntries(['fisica', 'moral'].map((who) => [who, { iva: flag(who, 'iva'), ret_iva: flag(who, 'ret_iva'), ret_isr: flag(who, 'ret_isr') }])),
+      };
+    }
+    site.updatePricing({ included_km: km, vehicles: req.body.vehicles, taxes });
     res.json(site.getPricing({ keepDisabled: true }));
   })
 );

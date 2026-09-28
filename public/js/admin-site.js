@@ -20,7 +20,9 @@ async function loadQuotes() {
           const wa = String(q.phone || '').replace(/\D/g, '');
           const rows = [
             ['Servicio', [q.service, q.vehicle].filter(Boolean).join(' · ')],
-            ['Estimado mostrado', q.estimate != null ? `$${fmtNum(q.estimate)} + IVA (${fmtNum(q.km)} km)` : ''],
+            ['Estimado mostrado', q.estimate != null ? `Subtotal $${fmtNum(q.estimate)} (${fmtNum(q.km)} km)${q.total != null ? ` · total con impuestos $${fmtNum(q.total, 2)}` : ''}` : ''],
+            ['Tipo de cliente', q.client_type ? (q.client_type === 'moral' ? 'Persona moral (empresa)' : 'Persona física') : ''],
+            ['Forma de pago', q.payment_method],
             ['Empresa', q.company],
             ['Origen', q.origin],
             ['Destino', q.destination],
@@ -102,8 +104,23 @@ async function loadPricing() {
           .join('')
     )
     .join('');
+  for (const input of $$('#tax-table [data-tax]')) input.value = pricing.taxes[input.dataset.tax];
+  for (const box of $$('#tax-table [data-rule]')) {
+    const [who, k] = box.dataset.rule.split('.');
+    box.checked = Boolean(pricing.taxes.rules[who][k]);
+  }
   form.querySelector('.msg').innerHTML = '';
   renderPricingExamples();
+}
+
+function readTaxes() {
+  const taxes = { rules: { fisica: {}, moral: {} } };
+  for (const input of $$('#tax-table [data-tax]')) taxes[input.dataset.tax] = Number(input.value);
+  for (const box of $$('#tax-table [data-rule]')) {
+    const [who, k] = box.dataset.rule.split('.');
+    taxes.rules[who][k] = box.checked;
+  }
+  return taxes;
 }
 
 function readPricingForm() {
@@ -117,7 +134,7 @@ function readPricingForm() {
       per_km: get('per_km') ? Number(get('per_km').value) : v.per_km ?? 0,
     };
   }
-  return { included_km: Number($('#pricing-form').included_km.value), vehicles };
+  return { included_km: Number($('#pricing-form').included_km.value), vehicles, taxes: readTaxes() };
 }
 
 function renderPricingExamples() {
@@ -131,7 +148,28 @@ function renderPricingExamples() {
   };
   $('#pricing-examples').innerHTML = `<table class="list"><thead><tr><th>Destino</th>${vehicles.map((v) => `<th class="num">${esc(v.label)}</th>`).join('')}</tr></thead><tbody>
     ${cities.map((c) => `<tr><td>${esc(c.name)} <span class="muted small">~${c.km} km</span></td>${vehicles.map((v) => `<td class="num">$${fmtNum(price(v, c.km))}</td>`).join('')}</tr>`).join('')}
-  </tbody></table><p class="muted small">Más casetas, extras e IVA.</p>`;
+  </tbody></table>${taxExample(input)}`;
+}
+
+// Ejemplo del desglose de impuestos con el flete a León en 3.5 t (o la primera unidad activa).
+function taxExample(input) {
+  const t = input.taxes;
+  const v = pricing.services.flatMap((s) => s.vehicles).find((x) => !x.special && input.vehicles[x.id]?.enabled);
+  const city = pricing.cities.find((c) => c.name === 'León');
+  if (!v || !city) return '';
+  const r = input.vehicles[v.id];
+  const sub = Math.round((r.base + Math.max(0, city.km - input.included_km) * r.per_km) / (pricing.round_to || 1)) * (pricing.round_to || 1);
+  const isFlete = pricing.services.find((s) => s.vehicles.includes(v)).id === 'flete';
+  const calc = (who) => {
+    const rule = t.rules[who];
+    const parts = [['Subtotal', sub]];
+    if (rule.iva) parts.push([`IVA ${t.iva}%`, (sub * t.iva) / 100]);
+    if (rule.ret_iva && isFlete) parts.push([`Ret. IVA ${t.ret_iva}%`, (-sub * t.ret_iva) / 100]);
+    if (rule.ret_isr) parts.push([`Ret. ISR ${t.ret_isr}%`, (-sub * t.ret_isr) / 100]);
+    const total = parts.reduce((a, [, n]) => a + n, 0);
+    return parts.map(([k, n]) => `${k}: $${fmtNum(n, 2)}`).join(' · ') + ` → <b>$${fmtNum(total, 2)}</b>`;
+  };
+  return `<p class="small" style="margin-top:8px"><b>${esc(v.label)} a León</b><br>Persona física: ${calc('fisica')}<br>Persona moral: ${calc('moral')}</p><p class="muted small">Casetas y extras aparte.</p>`;
 }
 
 $('#pricing-form').addEventListener('input', () => pricing && renderPricingExamples());

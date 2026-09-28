@@ -322,3 +322,34 @@ test('tarifas del cotizador y versión para GitHub Pages', async () => {
   assert.match(page, /"static":true/);
   for (const f of ['css/site.css', 'js/cotizador.js', 'img/logo.png', 'login.html']) assert.ok(fs.existsSync(path.join(out, f)), f);
 });
+
+test('impuestos del cotizador por tipo de cliente', async () => {
+  const { DEFAULT_PRICING, taxBreakdown } = require('../src/pricing');
+  // León en 3.5 t: subtotal $4,900
+  let t = taxBreakdown(DEFAULT_PRICING, { subtotal: 4900, clientType: 'moral', service: 'flete' });
+  assert.deepEqual(t.lines.map((l) => l.amount), [784, -196, -61.25]);
+  assert.equal(t.total, 5426.75);
+  t = taxBreakdown(DEFAULT_PRICING, { subtotal: 4900, clientType: 'fisica', service: 'flete' });
+  assert.equal(t.total, 5684, 'persona física: solo IVA');
+  t = taxBreakdown(DEFAULT_PRICING, { subtotal: 4900, clientType: 'moral', service: 'ejecutivo' });
+  assert.equal(t.total, 5622.75, 'viaje ejecutivo: sin retención de IVA de fletes');
+
+  const admin = client();
+  await admin('POST', '/login', { email: 'dueno@example.com', password: 'secreto123' });
+  const current = (await admin('GET', '/pricing')).data;
+  const rules = { fisica: { iva: true, ret_iva: true, ret_isr: false }, moral: { iva: true, ret_iva: true, ret_isr: false } };
+  let r = await admin('PUT', '/pricing', { included_km: current.included_km, vehicles: {}, taxes: { iva: 16, ret_iva: 4, ret_isr: 1.25, rules } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.data.taxes.rules.fisica, rules.fisica, 'las reglas se pueden ajustar');
+  r = await admin('PUT', '/pricing', { included_km: 40, vehicles: {}, taxes: { iva: 99, ret_iva: 4, ret_isr: 1.25, rules } });
+  assert.equal(r.status, 400);
+  assert.deepEqual((await admin('GET', '/pricing')).data.payment_methods.length, 3);
+
+  const visitor = client();
+  r = await visitor('POST', '/quotes', { name: 'Empresa SA', company: 'Empresa SA de CV', phone: '4421234567', client_type: 'moral', payment_method: 'Transferencia', estimate: 4900, total: 5426.75, km: 171 });
+  assert.equal(r.status, 201);
+  const q = (await admin('GET', '/quotes')).data[0];
+  assert.equal(q.client_type, 'moral');
+  assert.equal(q.total, 5426.75);
+  assert.equal(q.payment_method, 'Transferencia');
+});
