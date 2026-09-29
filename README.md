@@ -132,23 +132,78 @@ Cada cambio de estatus manda un correo. Quien hizo el cambio no recibe su propio
 ## Flujo del viaje
 
 ```
-Asignado ─(odómetro + combustible)─▶ Rumbo a cargar ─▶ Cargado (en espera) ─(foto de la carga)─▶ En ruta
-         ─(foto de llegada)─▶ En el punto de entrega ─(prueba de entrega + odómetro)─▶ Entregado, regresando
-         ─(odómetro + combustible)─▶ Cerrado
+Asignado ─(odómetro + combustible)─▶ Rumbo a cargar ─(foto al llegar a cargar)─(foto de la unidad cargada)─▶ Cargado
+         ─(salir; foto si pasaron más de 3 h)─▶ En ruta ─(foto de llegada)─▶ En el punto de entrega
+         ─(prueba de entrega + odómetro)─▶ Entregado, regresando ─(odómetro + combustible)─▶ Cerrado
+
+En cualquier etapa activa:  ⏸ Pausar (foto de la unidad + odómetro)  →  ▶ Reanudar (foto del odómetro)
 ```
 
 | Paso | Qué hace el chofer | Fotos que quedan en la plataforma |
 |---|---|---|
-| **Iniciar viaje** | Antes de arrancar hacia la recolección | Odómetro + lectura, **tablero con la aguja de combustible** + nivel (lleno, 3/4, 1/2…) |
-| **Terminé de cargar** | Al terminar de subir la mercancía. El viaje puede quedarse “Cargado” horas o días | — |
-| **Salir rumbo al destino** | Cuando arranca el viaje oficial (por ejemplo, al día siguiente) | **Foto de la carga** |
+| **Iniciar viaje** | Antes de arrancar hacia donde va a cargar | Odómetro + lectura, **tablero con la aguja de combustible** + nivel (lleno, 3/4, 1/2…) |
+| **Llegué a cargar** | Al llegar al punto de carga | **Foto de llegada a cargar** |
+| **Terminé de cargar** | Con la mercancía acomodada | **Foto de la unidad cargada** |
+| **Salir rumbo al destino** | Al arrancar hacia el destino | Foto de salida, **obligatoria si pasaron más de 3 horas** desde que cargó o reanudó |
 | **Llegué al punto de entrega** | Al llegar al destino | **Foto de llegada** |
 | **Entregar** | Al entregar | **Prueba de entrega** (1 a 3 fotos), **nombre de quien recibe**, **firma** en pantalla (opcional) y odómetro al entregar |
 | **Llegué a mi domicilio / base** | Al estacionar la unidad de regreso | Odómetro + lectura y **tablero con la aguja de combustible** + nivel. Cierra el viaje. |
 
-Cada foto guarda fecha, hora y la ubicación del celular (si el chofer da permiso). El personal ve todas las fotos en el detalle del viaje. El cliente ve las de carga, llegada, entrega y firma, pero no las del odómetro, el tablero ni los tickets de combustible. Para el cliente el envío termina al entregarse; el regreso del chofer es interno.
+Cada foto guarda fecha, hora y la ubicación del celular (si el chofer da permiso). El personal ve todas las fotos en el detalle del viaje. El cliente ve las de llegada a cargar, unidad cargada, salida, llegada, entrega y firma. No ve las del odómetro, el tablero, las pausas ni los tickets de combustible. Para el cliente el envío termina al entregarse; el regreso del chofer es interno.
 
-Así se cubre el caso de **cargar un día y salir al siguiente**: los km recorridos cuentan desde que el chofer sale a cargar hasta que regresa a su domicilio o base.
+### Viajes foráneos: pausas, pernocta y viaje de regreso
+
+**Pausas (descanso, hotel, domicilio).**
+- **Cuándo:** en cualquier etapa activa, el chofer presiona **🌙 Pausar**.
+- **Qué registra:**
+  - Dónde se queda: hotel, su domicilio, la base, instalaciones del cliente, descanso en carretera u otro.
+  - Una **foto de la unidad estacionada** y la lectura del odómetro.
+  - Opcionalmente, cuándo reanuda.
+- **Mientras está en pausa:**
+  - No puede avanzar pasos.
+  - No se registra su ubicación.
+  - Si ya salió al destino, el **ETA se recorre**: hora de reanudar + manejo que falta.
+- **Al día siguiente:** presiona **▶ Reanudar** con la **foto del odómetro**.
+- **Alertas al personal:**
+  - **Unidad movida:** si el odómetro cambió más de 5 km durante la pausa.
+  - **Pernocta no autorizada:** si pasa en hotel más noches de las autorizadas.
+
+**Pernocta autorizada.** Al crear el viaje se elige cuántas noches puede dormir fuera, más una nota de hospedaje y viáticos. El chofer lo ve en su viaje.
+
+**Viaje de regreso.**
+- **Cómo se crea:** desde el detalle del viaje de ida, con **↪ Crear viaje de regreso**, para una recolección en la misma ciudad días después.
+- **Qué tiene:** es otro viaje, con su cliente, carga, horarios, correos y enlace de seguimiento. Usa la **misma unidad y chofer**.
+- **Qué pasa con la ida:**
+  - La ida se **cierra sola** cuando el chofer inicia el regreso: la foto y lectura del odómetro y del combustible al iniciar el regreso son el cierre de la ida.
+  - Así cada tramo tiene sus km y su rendimiento.
+  - Si la unidad dormía en hotel, esa pausa también se cierra.
+
+**Ejemplo, Querétaro → Monterrey:**
+
+| Día | Qué pasa | Qué registra el chofer |
+|---|---|---|
+| 1 | Carga | Iniciar viaje → Llegué a cargar → Terminé de cargar → **Pausar (domicilio)** |
+| 2 | Viaja a Monterrey | **Reanudar** → Salir rumbo al destino → Llegué al punto de entrega |
+| 2 | No lo reciben hoy | **Pausar (hotel)** |
+| 3 | Entrega | **Reanudar** → Entregar |
+| 3 | La unidad duerme allá | **Pausar (hotel)** |
+| 4 | Recolección de regreso | Iniciar el **viaje de regreso** (cierra la ida) → Llegué a cargar → Terminé de cargar → Salir |
+| 4 | Llega de noche, entrega mañana | Llegué al punto de entrega → **Pausar (domicilio)** |
+| 5 | Entrega y cierra | **Reanudar** → Entregar → Llegué a mi domicilio / base |
+
+### Ubicación del chofer
+
+- **Cuándo se registra:** mientras el viaje está activo y **no está en pausa**, el celular manda su ubicación cada 5 minutos. Se cambia en *Empresa → Ubicación de los choferes*: 2, 5, 10, 15 min o apagado.
+- **Ahorro de datos y batería:**
+  - Una lectura por intervalo, no seguimiento continuo.
+  - No se envía si la unidad no se movió más de 150 m (salvo cada 30 min).
+  - Sin señal, los puntos se guardan en el celular y se envían juntos después.
+  - Cada envío pesa menos de 1 KB: unos 15 KB por hora.
+- **Qué ve el personal:**
+  - En la lista de viajes: “📍 hace X min”.
+  - En el detalle: el último punto y **🗺️ Ver recorrido**, que es el mapa con la línea del recorrido, o la lista de puntos sin Google Maps.
+  - Los km entre puntos sirven para comparar con el odómetro.
+- **Limitación:** una página web solo puede leer la ubicación **con la app abierta**. Si el chofer usa Google Maps para navegar, en ese rato no se registran puntos, pero sí en cada paso y cada foto. Para rastreo continuo en segundo plano se necesita un GPS en la unidad o una app nativa.
 
 ## Perfiles de usuario
 

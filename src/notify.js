@@ -120,6 +120,8 @@ function tripRows(trip, { internal = false } = {}) {
     ['Chofer', trip.driver_name],
     ['Vehículo', [trip.vehicle_name, trip.vehicle_plate].filter(Boolean).join(' · ')],
     ['Recibió', trip.received_by],
+    ['En pausa hasta', trip.paused ? formatLocal(trip.pause_until) || 'por confirmar' : ''],
+    ['Pernocta autorizada', internal && trip.overnight_nights ? `${trip.overnight_nights} noche(s)${trip.lodging_notes ? ` · ${trip.lodging_notes}` : ''}` : ''],
   ].filter(([, v]) => v);
 }
 
@@ -268,6 +270,29 @@ const STATUS_MESSAGES = {
     ],
     staff: (t) => [`${t.driver_name} inició el viaje ${tripTitle(t)}`, `Odómetro al salir: ${km(t.odo_start)} · Combustible: ${fuelText(t.fuel_start)}.`],
   },
+  llegada_carga: {
+    client: (t) => [`Tu envío ${tripTitle(t)}: la unidad llegó a cargar`, `La unidad ya está en ${t.prepickup_address || t.pickup_address}.`],
+    staff: (t) => [`${t.driver_name} llegó a cargar ${tripTitle(t)}`, `${t.prepickup_address || t.pickup_address}.`],
+  },
+  pausa: {
+    // Al cliente solo le interesa la pausa mientras su carga va en la unidad.
+    clientWhen: (t) => ['cargado', 'en_ruta', 'en_destino'].includes(t.status),
+    client: (t) => [
+      `Tu envío ${tripTitle(t)}: pausa por descanso del chofer`,
+      `El chofer hace una pausa por descanso.${t.pause_until ? ` Continúa aprox. el ${formatLocal(t.pause_until)}.` : ''}${etaText(t)}`,
+    ],
+    staff: (t, o) => [
+      `${t.driver_name} pausó el viaje ${tripTitle(t)} · ${o.pause.placeLabel}`,
+      `${o.pause.placeLabel}${o.pause.place_note ? ` (${o.pause.place_note})` : ''} · Odómetro: ${km(o.pause.pause_odometer)}${
+        t.pause_until ? ` · Reanuda: ${formatLocal(t.pause_until)}` : ''
+      } · Noches autorizadas: ${t.overnight_nights || 0}.`,
+    ],
+  },
+  reanudado: {
+    clientWhen: (t) => ['cargado', 'en_ruta', 'en_destino'].includes(t.status),
+    client: (t) => [`Tu envío ${tripTitle(t)} continúa`, `El chofer reanudó el viaje.${etaText(t)}`],
+    staff: (t, o) => [`${t.driver_name} reanudó el viaje ${tripTitle(t)}`, `Odómetro al reanudar: ${km(o.pause.resume_odometer ?? t.pauses?.at(-1)?.resume_odometer)}.${etaText(t)}`],
+  },
   cargado: {
     client: (t) => [
       `Tu envío ${tripTitle(t)}: carga lista en la unidad`,
@@ -289,7 +314,9 @@ const STATUS_MESSAGES = {
   },
   finalizado: {
     staff: (t) => [
-      `${t.driver_name} regresó a base · viaje ${tripTitle(t)} cerrado`,
+      t.return_trip_id
+        ? `Viaje de ida ${tripTitle(t)} cerrado · ${t.driver_name} inició el regreso #${t.return_trip_id}`
+        : `${t.driver_name} regresó a base · viaje ${tripTitle(t)} cerrado`,
       `km totales: ${km(t.km)} · Litros usados: ${t.fuel_used != null ? t.fuel_used : '—'} · Rendimiento: ${t.km_per_liter ? `${t.km_per_liter.toFixed(2)} km/L` : '—'} · Combustible al regresar: ${fuelText(t.fuel_end)}.`,
     ],
   },
@@ -330,12 +357,19 @@ function trackUrl(trip) {
   return `${config.appUrl}/seguimiento.html?t=${trip.track_token}`;
 }
 
-async function notifyTripStatus(trip, event, actorId, { onlyClients = false } = {}) {
+// options: onlyClients (solo avisar al cliente), pause (datos de la pausa) y
+// alert (texto de alerta para el personal: pernocta no autorizada, unidad movida…).
+async function notifyTripStatus(trip, event, actorId, options = {}) {
+  const { onlyClients = false, alert = null } = options;
   const def = STATUS_MESSAGES[event];
   if (!trip || !def) return;
   const jobs = [];
   if (def.staff && !onlyClients) {
-    const [subject, body] = def.staff(trip);
+    let [subject, body] = def.staff(trip, options);
+    if (alert) {
+      subject = `⚠ ${subject}`;
+      body = `⚠ ${alert} ${body}`;
+    }
     const link = `${config.appUrl}/admin.html#viaje-${trip.id}`;
     const staff = all("SELECT id, name, email, notify_email FROM users WHERE role IN ('superadmin', 'admin') AND active = 1");
     for (const u of staff) {
@@ -347,8 +381,8 @@ async function notifyTripStatus(trip, event, actorId, { onlyClients = false } = 
       jobs.push(sendPush(u.id, { title: subject, body, url: `/admin.html#viaje-${trip.id}`, tag: `viaje-${trip.id}` }));
     }
   }
-  if (def.client) {
-    const [subject, body] = def.client(trip);
+  if (def.client && (!def.clientWhen || def.clientWhen(trip))) {
+    const [subject, body] = def.client(trip, options);
     const recipients = new Map(); // correo → saludo
     if (trip.client_id && trip.client_id !== actorId) {
       const c = get('SELECT name, email, notify_email, active FROM users WHERE id = ?', trip.client_id);

@@ -41,6 +41,18 @@ const upload = multer({
   },
 });
 
+// ¿Algún viaje sigue usando este archivo? (la ida y el regreso comparten la foto del odómetro)
+function fileInUse(file) {
+  return Boolean(
+    get(
+      `SELECT 1 FROM trips WHERE ? IN (odo_start_photo, odo_end_photo, odo_return_photo, fuel_start_photo, fuel_end_photo)
+       UNION SELECT 1 FROM trip_photos WHERE file = ? UNION SELECT 1 FROM fuel_loads WHERE photo = ?
+       UNION SELECT 1 FROM trip_pauses WHERE ? IN (pause_photo, resume_photo) LIMIT 1`,
+      file, file, file, file
+    )
+  );
+}
+
 function removeUpload(file) {
   if (file) fs.rm(path.join(config.uploadsDir, path.basename(file)), { force: true }, () => {});
 }
@@ -53,11 +65,21 @@ const TRIP_SELECT = `
          v.tank_liters AS vehicle_tank_liters,
          c.name AS client_name, c.email AS client_email, c.company AS client_company,
          (SELECT COALESCE(SUM(f.liters), 0) FROM fuel_loads f WHERE f.trip_id = t.id) AS fuel_liters,
-         (SELECT COALESCE(SUM(f.amount), 0) FROM fuel_loads f WHERE f.trip_id = t.id) AS fuel_amount
+         (SELECT COALESCE(SUM(f.amount), 0) FROM fuel_loads f WHERE f.trip_id = t.id) AS fuel_amount,
+         (SELECT r.id FROM trips r WHERE r.parent_trip_id = t.id AND r.status <> 'cancelado' ORDER BY r.id DESC LIMIT 1) AS return_trip_id,
+         (SELECT p.status FROM trips p WHERE p.id = t.parent_trip_id) AS parent_status,
+         (SELECT json_object('lat', l.lat, 'lng', l.lng, 'at', l.recorded_at, 'accuracy', l.accuracy)
+            FROM trip_locations l WHERE l.trip_id = t.id ORDER BY l.id DESC LIMIT 1) AS last_location
     FROM trips t
     LEFT JOIN users d ON d.id = t.driver_id
     LEFT JOIN users c ON c.id = t.client_id
     LEFT JOIN vehicles v ON v.id = t.vehicle_id`;
+
+// Cada cuántos minutos se registra la ubicación del chofer (0 = apagado).
+function trackingMinutes() {
+  const n = Number(site.getSite().tracking_minutes);
+  return Number.isInteger(n) && n >= 0 && n <= 60 ? n : 5;
+}
 
 // Página de inicio según el perfil.
 function homePage(role) {
@@ -70,7 +92,7 @@ const CLIENT_TRIP_FIELDS = [
   'prepickup_address', 'prepickup_lat', 'prepickup_lng', 'prepickup_at',
   'dest_address', 'dest_lat', 'dest_lng', 'delivery_at', 'started_at', 'loaded_at', 'departed_at',
   'arrived_at', 'finished_at', 'cancelled_at', 'received_by', 'driver_name', 'vehicle_name', 'vehicle_plate',
-  'route_km', 'route_minutes', 'eta_at', 'eta_live_at', 'eta',
+  'route_km', 'route_minutes', 'eta_at', 'eta_live_at', 'eta', 'paused', 'pause_until', 'at_pickup_at',
 ];
 function forClient(trip) {
   const out = Object.fromEntries(CLIENT_TRIP_FIELDS.map((k) => [k, trip[k] ?? null]));
@@ -85,6 +107,8 @@ function forClient(trip) {
 // - fuel_used: litros cargados + lo que bajó la aguja del tablero (nivel inicial − final) × tanque.
 function withMetrics(trip) {
   if (!trip) return trip;
+  trip.pauses = all('SELECT * FROM trip_pauses WHERE trip_id = ? ORDER BY id', trip.id);
+  if (typeof trip.last_location === 'string') trip.last_location = JSON.parse(trip.last_location);
   const diff = (a, b) => (a != null && b != null ? a - b : null);
   trip.km_delivery = diff(trip.odo_end, trip.odo_start);
   trip.km_return = diff(trip.odo_return, trip.odo_end);
@@ -148,6 +172,7 @@ router.get(
       googleMapsApiKey: config.googleMapsApiKey,
       vapidPublicKey: notify.vapidPublicKey(),
       emailEnabled: notify.emailEnabled(),
+      trackingMinutes: trackingMinutes(),
       needsSetup: users === 0,
     });
   })
@@ -520,6 +545,8 @@ function readTripFields(body) {
     route_km: num(body.route_km),
     route_minutes: num(body.route_minutes),
     route_source: ['google', 'manual', 'estimado'].includes(body.route_source) ? body.route_source : null,
+    overnight_nights: Math.max(0, Math.min(30, Math.round(num(body.overnight_nights) || 0))),
+    lodging_notes: str(body.lodging_notes, 500),
   };
   if (!fields.pickup_address) throw bad('Indica el punto de inicio.');
   if (!fields.dest_address) throw bad('Indica el destino final.');
@@ -563,7 +590,7 @@ function readTripFields(body) {
 // Columnas del viaje que se guardan igual al crear y al editar.
 const EXTRA_COLS = [
   'name', 'notify_emails', 'prepickup_address', 'prepickup_lat', 'prepickup_lng', 'prepickup_at',
-  'route_km', 'route_minutes', 'route_source',
+  'route_km', 'route_minutes', 'route_source', 'overnight_nights', 'lodging_notes',
 ];
 
 router.post(
@@ -571,11 +598,21 @@ router.post(
   auth.requireAdmin,
   h(async (req, res) => {
     const f = readTripFields(req.body);
+    // Viaje de regreso: se liga al viaje de ida y usa la misma unidad y chofer.
+    const parentId = num(req.body.parent_trip_id);
+    if (parentId) {
+      const parent = loadTrip(parentId);
+      if (!parent) throw bad('El viaje de ida no existe.');
+      if (['finalizado', 'cancelado'].includes(parent.status)) throw bad('El viaje de ida ya está cerrado; crea un viaje normal.');
+      if (parent.return_trip_id) throw bad(`El viaje #${parent.id} ya tiene un viaje de regreso (#${parent.return_trip_id}).`);
+      if (f.driver_id !== parent.driver_id) throw bad('El viaje de regreso debe ser con el mismo chofer del viaje de ida.');
+      if ((f.vehicle_id || null) !== (parent.vehicle_id || null)) throw bad('El viaje de regreso debe ser con la misma unidad del viaje de ida.');
+    }
     const id = Number(
       run(
         `INSERT INTO trips (driver_id, vehicle_id, client_id, client, cargo, notes, pickup_address, pickup_lat, pickup_lng, pickup_at,
-                            dest_address, dest_lat, dest_lng, delivery_at, created_by, ${EXTRA_COLS.join(', ')}, track_token)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${EXTRA_COLS.map(() => '?').join(', ')}, ?)`,
+                            dest_address, dest_lat, dest_lng, delivery_at, created_by, ${EXTRA_COLS.join(', ')}, track_token, parent_trip_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${EXTRA_COLS.map(() => '?').join(', ')}, ?, ?)`,
         f.driver_id,
         f.vehicle_id,
         f.client_id,
@@ -592,10 +629,12 @@ router.post(
         f.delivery_at,
         req.user.id,
         ...EXTRA_COLS.map((k) => f[k]),
-        crypto.randomBytes(16).toString('hex')
+        crypto.randomBytes(16).toString('hex'),
+        parentId || null
       ).lastInsertRowid
     );
-    addEvent(id, req.user.id, 'creado', 'Viaje creado y asignado');
+    addEvent(id, req.user.id, 'creado', parentId ? `Viaje de regreso del viaje #${parentId}` : 'Viaje creado y asignado');
+    if (parentId) addEvent(parentId, req.user.id, 'regreso', `Se programó el viaje de regreso #${id}`);
     const trip = loadTrip(id);
     notify.notifyDriverAboutTrip(trip, 'assigned');
     notify.notifyTripStatus(trip, 'programado', req.user.id);
@@ -610,6 +649,11 @@ router.put(
     const before = tripForUser(req);
     if (before.status === 'cancelado') throw bad('El viaje está cancelado.');
     const f = readTripFields(req.body);
+    if (before.parent_trip_id || before.return_trip_id) {
+      if (f.driver_id !== before.driver_id || (f.vehicle_id || null) !== (before.vehicle_id || null)) {
+        throw bad('La ida y el regreso comparten chofer y unidad: no se pueden cambiar en uno solo.');
+      }
+    }
     const driverChanged = f.driver_id !== before.driver_id;
     if (driverChanged && before.status !== 'asignado') {
       throw bad('Solo se puede cambiar el chofer antes de que inicie el viaje.');
@@ -704,20 +748,30 @@ router.delete(
       trip.fuel_end_photo,
       ...all('SELECT photo FROM fuel_loads WHERE trip_id = ?', trip.id).map((r) => r.photo),
       ...all('SELECT file FROM trip_photos WHERE trip_id = ?', trip.id).map((r) => r.file),
-    ];
+      ...all('SELECT pause_photo, resume_photo FROM trip_pauses WHERE trip_id = ?', trip.id).flatMap((r) => [r.pause_photo, r.resume_photo]),
+    ].filter(Boolean);
+    run('UPDATE trips SET parent_trip_id = NULL WHERE parent_trip_id = ?', trip.id);
     run('DELETE FROM trips WHERE id = ?', trip.id);
-    photos.forEach(removeUpload);
+    // La foto del odómetro al iniciar un regreso también cierra el viaje de ida: no se borra si otro viaje la usa.
+    photos.filter((f) => !fileInUse(f)).forEach(removeUpload);
     res.json({ ok: true });
   })
 );
 
 // ---------- Acciones del chofer ----------
 // Cada paso solo se permite desde el estado anterior:
-//   asignado ──(odómetro y combustible)──▶ en_recoleccion ──▶ cargado
-//   ──(foto de la carga)──▶ en_ruta ──(foto de llegada)──▶ en_destino
+//   asignado ──(odómetro y combustible)──▶ en_recoleccion
+//     ──(foto al llegar a cargar)── (sigue en_recoleccion, marca at_pickup_at)
+//     ──(foto de la unidad cargada)──▶ cargado
+//   ──(foto de salida si pasaron más de 3 h desde que cargó)──▶ en_ruta
+//   ──(foto de llegada)──▶ en_destino
 //   ──(prueba de entrega: fotos, quién recibe, firma y odómetro)──▶ entregado
 //   ──(de regreso en su domicilio o base: odómetro y combustible)──▶ finalizado
-// "cargado" puede durar horas o días (se carga un día y se sale al siguiente).
+// En cualquier etapa activa el chofer puede PAUSAR (hotel, domicilio, descanso)
+// con foto y odómetro, y REANUDAR con foto del odómetro. Mientras está en pausa
+// no puede avanzar pasos y no se registra su ubicación.
+// Si el viaje tiene un viaje de regreso ligado, el de ida se cierra solo cuando
+// el chofer inicia el regreso (con esa misma lectura de odómetro y combustible).
 function driverOnly(req) {
   const trip = tripForUser(req);
   if (!auth.isStaff(req.user) && !(req.user.role === 'driver' && trip.driver_id === req.user.id)) {
@@ -747,7 +801,7 @@ function addPhoto(tripId, kind, file, req) {
 }
 
 // Paso del viaje: valida, guarda fotos y cambia de estado en una sola transacción.
-function tripStep({ from, to, stamp, event, label, apply }) {
+function tripStep({ from, to, stamp, event, label, apply, guard }) {
   return [
     auth.requireUser,
     stepUpload,
@@ -756,6 +810,8 @@ function tripStep({ from, to, stamp, event, label, apply }) {
       try {
         trip = driverOnly(req);
         if (trip.status !== from) throw bad('El viaje no está en el paso correcto. Actualiza la página.');
+        if (trip.paused) throw bad('El viaje está en pausa. Primero presiona "Reanudar viaje".');
+        if (guard) guard(trip);
         const files = {
           photo: req.files?.photo?.[0],
           fuel: req.files?.fuel?.[0],
@@ -774,6 +830,10 @@ function tripStep({ from, to, stamp, event, label, apply }) {
       const updated = loadTrip(trip.id);
       // Correo y notificación de cada cambio de estatus: personal de AN, cliente y correos adicionales.
       notify.notifyTripStatus(updated, event, req.user.id);
+      // Al iniciar un viaje de regreso se cierra el viaje de ida.
+      if (event === 'iniciado' && trip.parent_trip_id && trip.parent_status === 'entregado') {
+        notify.notifyTripStatus(loadTrip(trip.parent_trip_id), 'finalizado', req.user.id);
+      }
       res.json(updated);
     }),
   ];
@@ -802,6 +862,12 @@ function readFuelLevel(req) {
 }
 const fuelText = (level) => `${Math.round(level * 100)}%`;
 
+// Última lectura de odómetro conocida del viaje (inicio, pausas o entrega).
+function lastReading(trip) {
+  const readings = [trip.odo_start, trip.odo_end, ...trip.pauses.flatMap((p) => [p.pause_odometer, p.resume_odometer])].filter((v) => v != null);
+  return readings.length ? Math.max(...readings) : null;
+}
+
 // 1) Antes de arrancar: foto y lectura del odómetro.
 router.post(
   '/trips/:id/start',
@@ -811,11 +877,18 @@ router.post(
     stamp: 'started_at',
     event: 'iniciado',
     label: 'Inició el viaje',
+    guard(trip) {
+      if (trip.parent_trip_id && !['entregado', 'finalizado', 'cancelado'].includes(trip.parent_status)) {
+        throw bad(`Primero termina la entrega del viaje de ida #${trip.parent_trip_id}.`);
+      }
+    },
     apply(trip, files, req) {
       const photo = requirePhoto(files.photo, 'Toma la foto del odómetro.');
       const fuelPhoto = requirePhoto(files.fuel, 'Toma la foto del tablero con el nivel de combustible.');
-      const reading = readOdometer(req, null);
+      const parent = trip.parent_trip_id ? loadTrip(trip.parent_trip_id) : null;
+      const reading = parent && parent.status === 'entregado' ? readOdometer(req, lastReading(parent), 'la última del viaje de ida') : readOdometer(req, null);
       const level = readFuelLevel(req);
+      if (parent && parent.status === 'entregado') closeParent(parent, { reading, photo, level, fuelPhoto, req });
       run(
         'UPDATE trips SET odo_start = ?, odo_start_photo = ?, fuel_start = ?, fuel_start_photo = ? WHERE id = ?',
         reading,
@@ -830,13 +903,47 @@ router.post(
   })
 );
 
-// 2) Terminó de cargar (puede salir hasta otro día).
+// 2a) Llegó al punto de carga (recolección anticipada o punto de inicio): foto.
 router.post(
-  '/trips/:id/loaded',
-  ...tripStep({ from: 'en_recoleccion', to: 'cargado', stamp: 'loaded_at', event: 'cargado', label: 'Terminó de cargar' })
+  '/trips/:id/at-pickup',
+  ...tripStep({
+    from: 'en_recoleccion',
+    to: 'en_recoleccion',
+    stamp: 'at_pickup_at',
+    event: 'llegada_carga',
+    label: 'Llegó a cargar',
+    guard(trip) {
+      if (trip.at_pickup_at) throw bad('Ya registraste la llegada al punto de carga.');
+    },
+    apply(trip, files, req) {
+      addPhoto(trip.id, 'llegada_carga', requirePhoto(files.photo, 'Toma una foto al llegar al punto de carga.'), req);
+      return 'Llegó al punto de carga · foto de llegada';
+    },
+  })
 );
 
-// 3) Sale rumbo al destino: foto de la carga (inicio del viaje oficial).
+// 2b) Terminó de cargar: foto de la unidad cargada (puede salir hasta otro día).
+router.post(
+  '/trips/:id/loaded',
+  ...tripStep({
+    from: 'en_recoleccion',
+    to: 'cargado',
+    stamp: 'loaded_at',
+    event: 'cargado',
+    label: 'Terminó de cargar',
+    guard(trip) {
+      if (!trip.at_pickup_at) throw bad('Primero marca "Llegué a cargar" con su foto.');
+    },
+    apply(trip, files, req) {
+      addPhoto(trip.id, 'carga', requirePhoto(files.photo, 'Toma la foto de la unidad cargada.'), req);
+      return 'Terminó de cargar · foto de la unidad cargada';
+    },
+  })
+);
+
+// 3) Sale rumbo al destino. Si pasaron más de 3 horas desde que cargó (o desde
+//    que reanudó tras una pausa), se pide una foto de salida.
+const DEPART_PHOTO_AFTER_MIN = 180;
 router.post(
   '/trips/:id/depart',
   ...tripStep({
@@ -846,8 +953,13 @@ router.post(
     event: 'en_ruta',
     label: 'Salió rumbo al destino',
     apply(trip, files, req) {
-      addPhoto(trip.id, 'carga', requirePhoto(files.photo, 'Toma la foto de la carga antes de salir.'), req);
-      return 'Salió rumbo al destino · foto de la carga';
+      const lastActivity = [trip.loaded_at, ...trip.pauses.map((p) => p.resumed_at)].filter(Boolean).sort().at(-1);
+      const waited = lastActivity ? eta.minutesBetween(lastActivity, nowLocal()) : 0;
+      if (!files.photo && waited > DEPART_PHOTO_AFTER_MIN) {
+        throw bad('Pasaron más de 3 horas desde que cargaste: toma una foto de la unidad antes de salir.');
+      }
+      if (files.photo) addPhoto(trip.id, 'salida', files.photo.filename, req);
+      return `Salió rumbo al destino${files.photo ? ' · foto de salida' : ''}`;
     },
   })
 );
@@ -883,7 +995,7 @@ router.post(
       const receivedBy = str(req.body.received_by, 150);
       if (!receivedBy) throw bad('Escribe el nombre de quien recibe.');
       const odo = requirePhoto(files.photo, 'Toma la foto del odómetro al entregar.');
-      const reading = readOdometer(req, trip.odo_start, 'la inicial');
+      const reading = readOdometer(req, lastReading(trip), 'la última registrada');
       files.pod.forEach((f) => addPhoto(trip.id, 'entrega', f.filename, req));
       if (files.signature) addPhoto(trip.id, 'firma', files.signature.filename, req);
       run('UPDATE trips SET odo_end = ?, odo_end_photo = ?, received_by = ? WHERE id = ?', reading, odo, receivedBy, trip.id);
@@ -903,10 +1015,15 @@ router.post(
     stamp: 'returned_at',
     event: 'finalizado',
     label: 'Llegó a su base y cerró el viaje',
+    guard(trip) {
+      if (trip.return_trip_id) {
+        throw bad(`Este viaje continúa con el viaje de regreso #${trip.return_trip_id}: se cierra solo al iniciar el regreso.`);
+      }
+    },
     apply(trip, files, req) {
       const photo = requirePhoto(files.photo, 'Toma la foto del odómetro al llegar.');
       const fuelPhoto = requirePhoto(files.fuel, 'Toma la foto del tablero con el nivel de combustible.');
-      const reading = readOdometer(req, trip.odo_end ?? trip.odo_start, 'la registrada al entregar');
+      const reading = readOdometer(req, lastReading(trip), 'la última registrada');
       const level = readFuelLevel(req);
       run(
         'UPDATE trips SET odo_return = ?, odo_return_photo = ?, fuel_end = ?, fuel_end_photo = ? WHERE id = ?',
@@ -919,6 +1036,157 @@ router.post(
       if (trip.vehicle_id) run('UPDATE vehicles SET last_odometer = ? WHERE id = ?', reading, trip.vehicle_id);
       return `Llegó a su base · odómetro ${reading} km · combustible ${fuelText(level)}`;
     },
+  })
+);
+
+// Cierra el viaje de ida al iniciar su viaje de regreso: la lectura de odómetro y
+// combustible al iniciar el regreso es la lectura final de la ida.
+function closeParent(parent, { reading, photo, level, fuelPhoto, req }) {
+  const now = nowLocal();
+  const open = parent.pauses.find((p) => !p.resumed_at);
+  if (open) {
+    run(
+      'UPDATE trip_pauses SET resumed_at = ?, resume_photo = ?, resume_odometer = ?, resume_lat = ?, resume_lng = ? WHERE id = ?',
+      now, photo, reading, num(req.body.lat), num(req.body.lng), open.id
+    );
+  }
+  run(
+    `UPDATE trips SET status = 'finalizado', returned_at = ?, odo_return = ?, odo_return_photo = ?, fuel_end = ?, fuel_end_photo = ?,
+            updated_at = datetime('now') WHERE id = ?`,
+    now, reading, photo, level, fuelPhoto, parent.id
+  );
+  addEvent(parent.id, req.user.id, 'finalizado', `Cerrado al iniciar el viaje de regreso · odómetro ${reading} km · combustible ${fuelText(level)}`, req.body);
+}
+
+// ---------- Pausas: descanso, hotel o domicilio ----------
+const PAUSABLE = ['en_recoleccion', 'cargado', 'en_ruta', 'en_destino', 'entregado'];
+const PAUSE_PLACES = { hotel: 'Hotel', domicilio: 'Domicilio del chofer', base: 'Base de AN', cliente: 'Instalaciones del cliente', carretera: 'Descanso en carretera', otro: 'Otro lugar' };
+const MOVED_KM_ALERT = 5; // km que puede variar el odómetro durante una pausa sin alerta
+
+router.post(
+  '/trips/:id/pause',
+  auth.requireUser,
+  stepUpload,
+  h(async (req, res) => {
+    let trip;
+    let pauseId;
+    try {
+      trip = driverOnly(req);
+      if (!PAUSABLE.includes(trip.status)) throw bad('Este viaje no se puede pausar en esta etapa.');
+      if (trip.paused) throw bad('El viaje ya está en pausa.');
+      const place = PAUSE_PLACES[req.body.place] ? req.body.place : null;
+      if (!place) throw bad('Indica dónde haces la pausa.');
+      const photo = requirePhoto(req.files?.photo?.[0], 'Toma una foto de la unidad estacionada.');
+      const reading = readOdometer(req, lastReading(trip), 'la última registrada');
+      const planned = localDateTime(req.body.resume_planned_at, 'fecha y hora para reanudar', false);
+      if (planned && planned < nowLocal()) throw bad('La hora para reanudar debe ser en el futuro.');
+      const note = str(req.body.place_note, 200);
+      pauseId = transaction(() => {
+        const id = Number(
+          run(
+            `INSERT INTO trip_pauses (trip_id, user_id, status, place, place_note, paused_at, pause_photo, pause_odometer, pause_lat, pause_lng, resume_planned_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            trip.id, req.user.id, trip.status, place, note, nowLocal(), photo, reading, num(req.body.lat), num(req.body.lng), planned
+          ).lastInsertRowid
+        );
+        addEvent(
+          trip.id,
+          req.user.id,
+          'pausa',
+          `Pausa: ${PAUSE_PLACES[place]}${note ? ` (${note})` : ''} · odómetro ${reading} km${planned ? ` · reanuda ${planned.replace('T', ' ')}` : ''}`,
+          req.body
+        );
+        run("UPDATE trips SET updated_at = datetime('now') WHERE id = ?", trip.id);
+        return id;
+      });
+    } catch (err) {
+      uploadedFiles(req).forEach((f) => removeUpload(f.filename));
+      throw err;
+    }
+    const updated = loadTrip(trip.id);
+    const pause = updated.pauses.find((p) => p.id === pauseId);
+    // Pernocta en hotel sin noches autorizadas (o más noches de las autorizadas).
+    const hotelNights = updated.pauses.filter((p) => p.place === 'hotel').length;
+    const alert = pause.place === 'hotel' && hotelNights > (updated.overnight_nights || 0)
+      ? `Pernocta no autorizada: ${hotelNights} noche(s) de hotel y ${updated.overnight_nights || 0} autorizada(s).`
+      : null;
+    notify.notifyTripStatus(updated, 'pausa', req.user.id, { pause: { ...pause, placeLabel: PAUSE_PLACES[pause.place] }, alert });
+    res.json(updated);
+  })
+);
+
+router.post(
+  '/trips/:id/resume',
+  auth.requireUser,
+  stepUpload,
+  h(async (req, res) => {
+    let trip;
+    let moved = 0;
+    let pause;
+    try {
+      trip = driverOnly(req);
+      pause = trip.pauses.find((p) => !p.resumed_at);
+      if (!pause) throw bad('El viaje no está en pausa.');
+      const photo = requirePhoto(req.files?.photo?.[0], 'Toma la foto del odómetro antes de arrancar.');
+      const reading = readOdometer(req, pause.pause_odometer, 'la registrada al pausar');
+      moved = Math.round((reading - pause.pause_odometer) * 10) / 10;
+      transaction(() => {
+        run(
+          'UPDATE trip_pauses SET resumed_at = ?, resume_photo = ?, resume_odometer = ?, resume_lat = ?, resume_lng = ? WHERE id = ?',
+          nowLocal(), photo, reading, num(req.body.lat), num(req.body.lng), pause.id
+        );
+        addEvent(trip.id, req.user.id, 'reanudado', `Reanudó el viaje · odómetro ${reading} km${moved > MOVED_KM_ALERT ? ` · ⚠ la unidad se movió ${moved} km durante la pausa` : ''}`, req.body);
+        run("UPDATE trips SET updated_at = datetime('now') WHERE id = ?", trip.id);
+        if (trip.vehicle_id) run('UPDATE vehicles SET last_odometer = MAX(COALESCE(last_odometer, 0), ?) WHERE id = ?', reading, trip.vehicle_id);
+      });
+    } catch (err) {
+      uploadedFiles(req).forEach((f) => removeUpload(f.filename));
+      throw err;
+    }
+    const updated = loadTrip(trip.id);
+    const alert = moved > MOVED_KM_ALERT ? `La unidad se movió ${moved} km durante la pausa (${PAUSE_PLACES[pause.place]}).` : null;
+    notify.notifyTripStatus(updated, 'reanudado', req.user.id, { pause: { ...pause, placeLabel: PAUSE_PLACES[pause.place] }, alert });
+    res.json(updated);
+  })
+);
+
+// ---------- Ubicación del chofer ----------
+// El celular manda puntos cada cierto tiempo (y los acumula si no hay señal).
+// Solo se guardan mientras el viaje está activo y no está en pausa.
+const TRACKED = ['en_recoleccion', 'cargado', 'en_ruta', 'en_destino', 'entregado'];
+router.post(
+  '/trips/:id/locations',
+  auth.requireUser,
+  h((req, res) => {
+    const trip = driverOnly(req);
+    if (!TRACKED.includes(trip.status) || trip.paused || trackingMinutes() === 0) return res.json({ accepted: 0, stop: true });
+    const points = Array.isArray(req.body.points) ? req.body.points.slice(0, 100) : [];
+    const now = Date.now();
+    let accepted = 0;
+    transaction(() => {
+      for (const p of points) {
+        const lat = num(p.lat);
+        const lng = num(p.lng);
+        const t = num(p.t);
+        if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180 || !t) continue;
+        if (t > now + 5 * 60000 || t < now - 48 * 3600000) continue; // hora del celular fuera de rango
+        run(
+          'INSERT INTO trip_locations (trip_id, user_id, lat, lng, accuracy, speed, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          trip.id, req.user.id, lat, lng, num(p.accuracy), num(p.speed), new Date(t).toISOString()
+        );
+        accepted += 1;
+      }
+    });
+    res.json({ accepted, interval: trackingMinutes() });
+  })
+);
+
+router.get(
+  '/trips/:id/locations',
+  auth.requireAdmin,
+  h((req, res) => {
+    const trip = tripForUser(req);
+    res.json(all('SELECT lat, lng, accuracy, speed, recorded_at FROM trip_locations WHERE trip_id = ? ORDER BY id LIMIT 5000', trip.id));
   })
 );
 
@@ -998,7 +1266,10 @@ router.get(
       : get(
           `SELECT t.driver_id, NULL AS client_id FROM trips t
             WHERE ? IN (t.odo_start_photo, t.odo_end_photo, t.odo_return_photo, t.fuel_start_photo, t.fuel_end_photo)
-               OR t.id IN (SELECT trip_id FROM fuel_loads WHERE photo = ?)`,
+               OR t.id IN (SELECT trip_id FROM fuel_loads WHERE photo = ?)
+               OR t.id IN (SELECT trip_id FROM trip_pauses WHERE pause_photo = ? OR resume_photo = ?)`,
+          file,
+          file,
           file,
           file
         );

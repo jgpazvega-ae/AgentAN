@@ -15,7 +15,16 @@ function fuelLabel(level) {
   return hit ? hit[1] : `${Math.round(level * 100)}%`;
 }
 
-const PHOTO_KIND = { carga: 'Carga antes de salir', llegada: 'Llegada al punto de entrega', entrega: 'Prueba de entrega', firma: 'Firma de quien recibe' };
+const PHOTO_KIND = {
+  llegada_carga: 'Llegada al punto de carga',
+  carga: 'Unidad cargada',
+  salida: 'Salida al destino',
+  llegada: 'Llegada al punto de entrega',
+  entrega: 'Prueba de entrega',
+  firma: 'Firma de quien recibe',
+};
+const PHOTO_ORDER = Object.keys(PHOTO_KIND);
+const PAUSE_PLACE_LABEL = { hotel: 'Hotel', domicilio: 'Domicilio del chofer', base: 'Base de AN', cliente: 'Instalaciones del cliente', carretera: 'Descanso en carretera', otro: 'Otro lugar' };
 
 const STATUS = {
   asignado: { label: 'Asignado', step: 0 },
@@ -78,6 +87,16 @@ function fmtUtc(value) {
 function fmtNum(n, digits = 0) {
   if (n == null || !Number.isFinite(Number(n))) return '—';
   return Number(n).toLocaleString('es-MX', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+// "2026-10-01T08:30:00.000Z" → "hace 5 min"
+function fmtAgo(iso) {
+  if (!iso) return '';
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return 'hace un momento';
+  if (min < 60) return `hace ${min} min`;
+  if (min < 48 * 60) return `hace ${Math.round(min / 60)} h`;
+  return `hace ${Math.round(min / 1440)} días`;
 }
 
 // 330 → "5 h 30 min"

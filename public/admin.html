@@ -148,6 +148,15 @@
           <div><label>RFC (para recibos)</label><input name="rfc" maxlength="20"></div>
         </div>
         <label>Dirección</label><input name="address" maxlength="300">
+        <label>Ubicación de los choferes durante el viaje</label>
+        <select name="tracking_minutes" style="max-width:320px">
+          <option value="2">Cada 2 minutos</option>
+          <option value="5">Cada 5 minutos (recomendado)</option>
+          <option value="10">Cada 10 minutos</option>
+          <option value="15">Cada 15 minutos</option>
+          <option value="0">No registrar</option>
+        </select>
+        <p class="muted small">Solo mientras el viaje está activo (no en pausa) y la app está abierta en el celular. Cada envío pesa menos de 1 KB: unos 15 KB de datos por hora con 5 minutos.</p>
         <div class="msg"></div>
         <div class="dialog-actions"><a class="btn" href="/" target="_blank">Ver página</a><button class="btn-primary">Guardar</button></div>
       </form>
@@ -277,6 +286,23 @@
           </div>
         </div>
       </div>
+
+      <div class="grid-2" style="margin-top:14px">
+        <div>
+          <label>🌙 Viaje foráneo: noches fuera autorizadas</label>
+          <select name="overnight_nights">
+            <option value="0">No duerme fuera</option>
+            <option value="1">1 noche</option>
+            <option value="2">2 noches</option>
+            <option value="3">3 noches</option>
+            <option value="4">4 noches</option>
+            <option value="5">5 noches</option>
+            <option value="7">1 semana</option>
+          </select>
+        </div>
+        <div><label>Hospedaje y viáticos (opcional)</label><input name="lodging_notes" maxlength="500" placeholder="Ej. Hotel en Monterrey, $900 por noche"></div>
+      </div>
+      <p class="muted small">El chofer puede pausar el viaje cuando lo necesite (descanso, hotel o su domicilio) con foto y odómetro. Si pasa en hotel más noches de las autorizadas, te llega una alerta.</p>
 
       <div class="grid-2">
         <div><label>Cliente</label><input name="client" maxlength="200"></div>

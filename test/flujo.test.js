@@ -62,6 +62,11 @@ function odoFuelForm(reading, level) {
   if (level != null) fd.append('fuel_level', String(level));
   return fd;
 }
+// Llega al punto de carga y termina de cargar (cada paso con su foto).
+async function loadUnit(c, id) {
+  await c('POST', `/trips/${id}/at-pickup`, photoForm());
+  return c('POST', `/trips/${id}/loaded`, photoForm());
+}
 function photoForm(extra = {}) {
   const fd = new FormData();
   fd.append('photo', new Blob([JPEG], { type: 'image/jpeg' }), 'foto.jpg');
@@ -149,10 +154,19 @@ test('flujo completo de un viaje', async () => {
   assert.equal(r.data.odo_start, 100050);
   const startPhoto = r.data.odo_start_photo;
 
-  r = await driver('POST', `/trips/${tripId}/loaded`, {});
+  r = await driver('POST', `/trips/${tripId}/loaded`, photoForm());
+  assert.equal(r.status, 400, 'primero marca que llegó a cargar');
+  r = await driver('POST', `/trips/${tripId}/at-pickup`, new FormData());
+  assert.equal(r.status, 400, 'la llegada a cargar pide foto');
+  r = await driver('POST', `/trips/${tripId}/at-pickup`, photoForm());
+  assert.equal(r.data.status, 'en_recoleccion');
+  assert.ok(r.data.at_pickup_at);
+  r = await driver('POST', `/trips/${tripId}/at-pickup`, photoForm());
+  assert.equal(r.status, 400, 'solo una vez');
+  r = await driver('POST', `/trips/${tripId}/loaded`, new FormData());
+  assert.equal(r.status, 400, 'terminar de cargar pide la foto de la unidad cargada');
+  r = await driver('POST', `/trips/${tripId}/loaded`, photoForm());
   assert.equal(r.data.status, 'cargado');
-  r = await driver('POST', `/trips/${tripId}/depart`, new FormData());
-  assert.equal(r.status, 400, 'salir a destino pide la foto de la carga');
   r = await driver('POST', `/trips/${tripId}/depart`, photoForm({ lat: 25.7, lng: -100.3 }));
   assert.equal(r.data.status, 'en_ruta');
 
@@ -210,11 +224,11 @@ test('flujo completo de un viaje', async () => {
   r = await admin('GET', `/trips/${tripId}`);
   assert.deepEqual(
     r.data.events.map((e) => e.type),
-    ['creado', 'iniciado', 'cargado', 'en_ruta', 'combustible', 'llegada', 'entregado', 'finalizado']
+    ['creado', 'iniciado', 'llegada_carga', 'cargado', 'en_ruta', 'combustible', 'llegada', 'entregado', 'finalizado']
   );
   assert.deepEqual(
     r.data.photos.map((p) => p.kind),
-    ['carga', 'llegada', 'entrega', 'entrega', 'firma'],
+    ['llegada_carga', 'carga', 'salida', 'llegada', 'entrega', 'entrega', 'firma'],
     'fotos de cada etapa guardadas en la plataforma'
   );
   const vehicles = (await admin('GET', '/vehicles')).data;
@@ -485,7 +499,7 @@ test('perfiles: superadministrador, personal de AN, choferes y clientes', async 
   r = await driver('POST', `/trips/${tripId}/start`, odoFuelForm(101100, 1));
   const odoPhoto = r.data.odo_start_photo;
   const fuelPhoto = r.data.fuel_start_photo;
-  await driver('POST', `/trips/${tripId}/loaded`, {});
+  await loadUnit(driver, tripId);
   r = await driver('POST', `/trips/${tripId}/depart`, photoForm());
   assert.equal(r.data.status, 'en_ruta');
 
@@ -497,7 +511,7 @@ test('perfiles: superadministrador, personal de AN, choferes y clientes', async 
   assert.equal(r.data[0].status, 'en_ruta');
   assert.equal(r.data[0].odo_start, undefined, 'sin datos internos (odómetro)');
   assert.equal(r.data[0].notes, undefined);
-  assert.equal(r.data[0].photos[0].kind, 'carga');
+  assert.equal(r.data[0].photos[0].kind, 'llegada_carga');
   r = await cli('GET', `/photos/${r.data[0].photos[0].file}`);
   assert.equal(r.status, 200, 've la foto de la carga');
   r = await cli('GET', `/photos/${odoPhoto}`);
@@ -600,7 +614,7 @@ test('ETA, recolección anticipada, correos de estatus y seguimiento público', 
   assert.ok(mails('dueno@example.com').at(-1).text.includes('Combustible: 3/4'), 'datos internos solo para el personal');
   assert.ok(!mails('compras@cliente.mx').at(-1).text.includes('Odómetro'), 'el cliente no ve el odómetro');
 
-  await driver('POST', `/trips/${trip.id}/loaded`, {});
+  await loadUnit(driver, trip.id);
   await tick();
   assert.match(mails('diana@example.com').at(-1).subject, /carga lista/);
   assert.ok(mails('diana@example.com').at(-1).text.includes('lunes 5 oct 2026, 08:00 h'), 'avisa cuándo sale al destino');
@@ -625,7 +639,7 @@ test('ETA, recolección anticipada, correos de estatus y seguimiento público', 
   assert.equal(tracked.odo_start, undefined);
   assert.equal(tracked.fuel_start, undefined);
   assert.equal(tracked.notify_emails, undefined);
-  assert.equal(tracked.photos[0].kind, 'carga');
+  assert.equal(tracked.photos[0].kind, 'llegada_carga');
   res = await fetch(`${base_url()}/track/${trip.track_token}/photos/${tracked.photos[0].file}`);
   assert.equal(res.status, 200, 'foto de la carga');
   res = await fetch(`${base_url()}/track/${trip.track_token}/photos/${r.data.odo_start_photo}`);
@@ -660,6 +674,188 @@ test('ETA, recolección anticipada, correos de estatus y seguimiento público', 
   await tick();
   assert.equal(mails('diana@example.com').length, count, 'sin correos si los apagó');
   assert.match(mails('compras@cliente.mx').at(-1).subject, /llegó al punto de entrega/);
+});
+
+test('viaje foráneo: pausas, pernocta, viaje de regreso y ubicación', async () => {
+  const { outbox } = require('../src/notify');
+  const { run: dbRun } = require('../src/db');
+  const { addMinutes, minutesBetween } = require('../src/eta');
+  const tick = () => new Promise((r) => setTimeout(r, 30));
+  const lastMail = (to) => outbox.filter((m) => m.to === to).at(-1);
+  const future = `${new Date().getFullYear() + 1}-01-10T05:30`;
+  const pauseForm = (reading, place, extra = {}) => photoForm({ odometer: reading, place, ...extra });
+
+  const boss = client();
+  await boss('POST', '/login', { email: 'dueno@example.com', password: 'secreto123' });
+  const juan = (await boss('GET', '/users')).data.find((u) => u.email === 'juan@example.com');
+  const pedro = (await boss('GET', '/users')).data.find((u) => u.email === 'pedro@example.com');
+  let r = await boss('POST', '/vehicles', { name: 'Van foránea', tank_liters: 80, last_odometer: 200000 });
+  const vanId = r.data.id;
+  r = await boss('POST', '/trips', {
+    name: 'Monterrey ida',
+    driver_id: juan.id,
+    vehicle_id: vanId,
+    pickup_address: 'Proveedor, Querétaro',
+    pickup_at: '2026-10-07T06:00',
+    dest_address: 'Cliente, Monterrey',
+    route_minutes: 540,
+    overnight_nights: 1,
+    lodging_notes: 'Hotel en Monterrey, viáticos $900',
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const ida = r.data;
+  assert.equal(ida.overnight_nights, 1);
+
+  const driver = client();
+  await driver('POST', '/login', { email: 'juan@example.com', password: 'chofer123' });
+  r = await driver('POST', `/trips/${ida.id}/pause`, pauseForm(200000, 'domicilio'));
+  assert.equal(r.status, 400, 'no se pausa un viaje que no ha iniciado');
+  await driver('POST', `/trips/${ida.id}/start`, odoFuelForm(200000, 1));
+  await loadUnit(driver, ida.id);
+
+  // Día 1: cargó y se va a dormir a su domicilio.
+  r = await driver('POST', `/trips/${ida.id}/pause`, pauseForm(200030, ''));
+  assert.equal(r.status, 400, 'pide el lugar');
+  const noPhoto = new FormData();
+  noPhoto.append('odometer', '200030');
+  noPhoto.append('place', 'domicilio');
+  r = await driver('POST', `/trips/${ida.id}/pause`, noPhoto);
+  assert.equal(r.status, 400, 'pide la foto');
+  r = await driver('POST', `/trips/${ida.id}/pause`, pauseForm(199000, 'domicilio'));
+  assert.equal(r.status, 400, 'el odómetro no baja');
+  r = await driver('POST', `/trips/${ida.id}/pause`, pauseForm(200030, 'domicilio', { resume_planned_at: future }));
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.paused, true);
+  assert.equal(r.data.pause_until, future);
+  r = await driver('POST', `/trips/${ida.id}/pause`, pauseForm(200030, 'hotel'));
+  assert.equal(r.status, 400, 'ya está en pausa');
+  r = await driver('POST', `/trips/${ida.id}/depart`, photoForm());
+  assert.equal(r.status, 400, 'en pausa no avanza');
+  r = await driver('POST', `/trips/${ida.id}/locations`, { points: [{ lat: 20.6, lng: -100.4, t: Date.now() }] });
+  assert.deepEqual([r.data.accepted, r.data.stop], [0, true], 'en pausa no se registra la ubicación');
+
+  // Día 2: reanuda con foto del odómetro.
+  r = await driver('POST', `/trips/${ida.id}/resume`, odometerForm(200010));
+  assert.equal(r.status, 400, 'no puede ser menor a la lectura al pausar');
+  r = await driver('POST', `/trips/${ida.id}/resume`, odometerForm(200032));
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.paused, false);
+  assert.equal(r.data.pauses[0].resume_odometer, 200032);
+
+  // Si pasaron más de 3 horas desde que cargó o reanudó, la salida pide foto.
+  dbRun("UPDATE trips SET loaded_at = '2020-01-01T08:00' WHERE id = ?", ida.id);
+  dbRun("UPDATE trip_pauses SET resumed_at = '2020-01-01T09:00' WHERE trip_id = ?", ida.id);
+  r = await driver('POST', `/trips/${ida.id}/depart`, new FormData());
+  assert.equal(r.status, 400, 'pide foto de salida');
+  r = await driver('POST', `/trips/${ida.id}/depart`, photoForm());
+  assert.equal(r.data.status, 'en_ruta');
+  const departedAt = r.data.departed_at;
+
+  // Ubicación periódica.
+  r = await driver('POST', `/trips/${ida.id}/locations`, {
+    points: [
+      { lat: 22.15, lng: -100.98, accuracy: 25, speed: 24, t: Date.now() - 60000 },
+      { lat: 999, lng: 0, t: Date.now() },
+      { lat: 22.2, lng: -100.9, t: Date.now() - 10 * 86400000 },
+    ],
+  });
+  assert.equal(r.data.accepted, 1, 'descarta puntos inválidos o muy viejos');
+  assert.equal(r.data.interval, 5);
+  r = await driver('GET', `/trips/${ida.id}/locations`);
+  assert.equal(r.status, 403, 'el chofer no consulta el recorrido');
+  r = await boss('GET', `/trips/${ida.id}/locations`);
+  assert.equal(r.data.length, 1);
+  r = await boss('GET', '/trips?scope=open');
+  assert.equal(r.data.find((t) => t.id === ida.id).last_location.lat, 22.15);
+
+  // Noche en hotel (autorizada) con hora de reanudación: el ETA se recorre.
+  r = await driver('POST', `/trips/${ida.id}/pause`, pauseForm(200500, 'hotel', { place_note: 'Saltillo', resume_planned_at: future }));
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const hotel = r.data.pauses.at(-1);
+  const driven = minutesBetween(departedAt, hotel.paused_at);
+  assert.equal(r.data.eta, addMinutes(future, Math.max(0, 540 - driven)), 'ETA = reanudación + manejo que falta');
+  await tick();
+  assert.match(lastMail('dueno@example.com').subject, /pausó el viaje .* Hotel/);
+  assert.doesNotMatch(lastMail('dueno@example.com').subject, /⚠/, 'primera noche autorizada');
+
+  // La unidad se movió durante la pausa → alerta.
+  r = await driver('POST', `/trips/${ida.id}/resume`, odometerForm(200520));
+  assert.equal(r.status, 200);
+  await tick();
+  assert.match(lastMail('dueno@example.com').subject, /^⚠ .*reanudó/);
+  assert.ok(lastMail('dueno@example.com').text.includes('se movió 20 km'));
+
+  // Llega a Monterrey pero lo reciben mañana: segunda noche de hotel (solo 1 autorizada).
+  await driver('POST', `/trips/${ida.id}/arrive`, photoForm());
+  r = await driver('POST', `/trips/${ida.id}/pause`, pauseForm(201000, 'hotel'));
+  assert.equal(r.status, 200);
+  await tick();
+  assert.match(lastMail('dueno@example.com').subject, /^⚠ /);
+  assert.ok(lastMail('dueno@example.com').text.includes('Pernocta no autorizada: 2 noche(s)'));
+  await driver('POST', `/trips/${ida.id}/resume`, odometerForm(201000));
+  r = await driver('POST', `/trips/${ida.id}/finish`, deliveryForm(200900));
+  assert.equal(r.status, 400, 'la entrega no puede ser menor a la última lectura (pausas)');
+  r = await driver('POST', `/trips/${ida.id}/finish`, deliveryForm(201010));
+  assert.equal(r.data.status, 'entregado');
+
+  // Viaje de regreso ligado (recolección en Monterrey 2 días después).
+  const regreso = {
+    name: 'Monterrey regreso',
+    driver_id: juan.id,
+    vehicle_id: vanId,
+    pickup_address: 'Otro cliente, Monterrey',
+    pickup_at: '2026-10-10T08:00',
+    dest_address: 'Bodega, Querétaro',
+    parent_trip_id: ida.id,
+  };
+  r = await boss('POST', '/trips', { ...regreso, driver_id: pedro.id });
+  assert.equal(r.status, 400, 'mismo chofer');
+  r = await boss('POST', '/trips', { ...regreso, vehicle_id: null });
+  assert.equal(r.status, 400, 'misma unidad');
+  r = await boss('POST', '/trips', regreso);
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const back = r.data;
+  assert.equal(back.parent_trip_id, ida.id);
+  r = await boss('POST', '/trips', regreso);
+  assert.equal(r.status, 400, 'solo un regreso por viaje');
+  r = await boss('GET', `/trips/${ida.id}`);
+  assert.equal(r.data.return_trip_id, back.id);
+  r = await boss('PUT', `/trips/${back.id}`, { ...regreso, driver_id: pedro.id });
+  assert.equal(r.status, 400, 'no se cambia el chofer de un solo tramo');
+
+  r = await driver('POST', `/trips/${ida.id}/return`, odoFuelForm(201020, 0.5));
+  assert.equal(r.status, 400, 'la ida se cierra al iniciar el regreso');
+
+  // La unidad duerme en Monterrey hasta la recolección.
+  await driver('POST', `/trips/${ida.id}/pause`, pauseForm(201015, 'hotel'));
+  r = await driver('POST', `/trips/${back.id}/start`, odoFuelForm(201000, 0.5));
+  assert.equal(r.status, 400, 'el odómetro del regreso no baja de la última lectura de la ida');
+  r = await driver('POST', `/trips/${back.id}/start`, odoFuelForm(201030, 0.5));
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  r = await boss('GET', `/trips/${ida.id}`);
+  assert.equal(r.data.status, 'finalizado', 'la ida se cerró sola');
+  assert.equal(r.data.odo_return, 201030);
+  assert.equal(r.data.fuel_end, 0.5);
+  assert.equal(r.data.km, 1030);
+  assert.equal(r.data.paused, false, 'la pausa en hotel se cerró al iniciar el regreso');
+  assert.ok(r.data.events.some((e) => e.type === 'finalizado' && /regreso/.test(e.note)));
+  await tick();
+  assert.ok(outbox.some((m) => m.to === 'dueno@example.com' && /Viaje de ida .* cerrado/.test(m.subject)));
+
+  // Regreso: carga, sale, llega; no lo reciben hoy → duerme en su domicilio y entrega mañana.
+  await loadUnit(driver, back.id);
+  await driver('POST', `/trips/${back.id}/depart`, new FormData());
+  await driver('POST', `/trips/${back.id}/arrive`, photoForm());
+  r = await driver('POST', `/trips/${back.id}/pause`, pauseForm(201950, 'domicilio'));
+  assert.equal(r.status, 200);
+  assert.equal(r.data.eta, null, 'ya llegó');
+  await driver('POST', `/trips/${back.id}/resume`, odometerForm(201950));
+  r = await driver('POST', `/trips/${back.id}/finish`, deliveryForm(201960));
+  assert.equal(r.data.status, 'entregado');
+  r = await driver('POST', `/trips/${back.id}/return`, odoFuelForm(201980, 0.25));
+  assert.equal(r.data.status, 'finalizado');
+  assert.equal(r.data.km, 950);
+  assert.equal(r.data.fuel_level_liters, 20, '(1/2 − 1/4) × 80 L');
 });
 
 test('migración: una base de datos anterior conserva sus datos y el primer admin pasa a superadministrador', () => {

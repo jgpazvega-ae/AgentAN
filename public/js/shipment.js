@@ -20,6 +20,7 @@ function shipmentCard(t, { photoSrc }) {
   const milestones = [
     ['Recolección anticipada', t.prepickup_at && fmtDate(t.prepickup_at, true)],
     ['Inicio programado', fmtDate(t.pickup_at, true)],
+    ['Llegó a cargar', t.at_pickup_at && fmtDate(t.at_pickup_at, true)],
     ['Salió rumbo al destino', t.departed_at && fmtDate(t.departed_at, true)],
     ['Llegó al punto de entrega', t.arrived_at && fmtDate(t.arrived_at, true)],
     ['Entregado', t.finished_at && fmtDate(t.finished_at, true)],
@@ -29,7 +30,7 @@ function shipmentCard(t, { photoSrc }) {
     ['Chofer', t.driver_name],
     ['Carga', t.cargo],
   ].filter(([, v]) => v);
-  const groups = ['carga', 'llegada', 'entrega', 'firma']
+  const groups = PHOTO_ORDER
     .map((kind) => {
       const list = t.photos.filter((p) => p.kind === kind);
       return list.length ? `<div class="photo-group"><h4>${esc(PHOTO_KIND[kind])}</h4><div class="photos">${list.map(figure).join('')}</div></div>` : '';
@@ -46,10 +47,13 @@ function shipmentCard(t, { photoSrc }) {
   return `
   <article class="card" id="viaje-${t.id}">
     <div class="card-head">
-      <div><h2>Envío #${t.id}${t.name ? ` · ${esc(t.name)}` : ''}</h2><span class="badge st-${esc(t.status)}">${esc(CLIENT_STATUS[t.status] || t.status)}</span></div>
+      <div><h2>Envío #${t.id}${t.name ? ` · ${esc(t.name)}` : ''}</h2><span class="badge st-${esc(t.status)}">${esc(CLIENT_STATUS[t.status] || t.status)}</span>${
+        t.paused && open ? ' <span class="badge st-pausa">⏸ En pausa</span>' : ''
+      }</div>
       ${t.client ? `<span class="muted small">${esc(t.client)}</span>` : ''}
     </div>
     ${t.status !== 'cancelado' ? `<div class="steps">${[1, 2, 3, 4, 5].map((i) => `<span class="${step >= i ? 'done' : ''}"></span>`).join('')}</div>` : ''}
+    ${t.paused && open ? `<div class="alert alert-info">⏸ El chofer hace una pausa por descanso.${t.pause_until ? ` Continúa aprox. el ${esc(fmtDate(t.pause_until, true))}.` : ''}</div>` : ''}
     ${etaBox}
     ${t.prepickup_address ? stop('📦', 'Recolección anticipada', t.prepickup_address, 'pre') : ''}
     ${stop('📍', 'Origen', t.pickup_address)}

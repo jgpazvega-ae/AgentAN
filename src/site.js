@@ -16,6 +16,7 @@ const FIELDS = {
   address: 300,
   rfc: 20,
   quotes_email: 200, // a dónde llegan las solicitudes de cotización
+  tracking_minutes: 3, // cada cuántos minutos se registra la ubicación del chofer (0 = apagado)
 };
 
 function defaults() {
@@ -30,6 +31,7 @@ function defaults() {
     address: config.companyAddress,
     rfc: config.companyRfc,
     quotes_email: '',
+    tracking_minutes: '5',
   };
 }
 

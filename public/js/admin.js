@@ -5,6 +5,7 @@ let users = [];
 let vehicles = [];
 let trips = [];
 let editingTrip = null;
+let returnParent = null; // viaje de ida cuando se crea su viaje de regreso
 let editingUser = null;
 let editingVehicle = null;
 let pickupPicker;
@@ -89,11 +90,13 @@ function renderTrips() {
       (t) => `
       <tr class="clickable" data-id="${t.id}">
         <td>${t.id}</td>
-        <td>${statusBadge(t.status)}</td>
+        <td>${statusBadge(t.status)}${t.paused ? '<div><span class="badge st-pausa">⏸ En pausa</span></div>' : ''}${t.parent_trip_id ? `<div class="muted small">↩ regreso de #${t.parent_trip_id}</div>` : ''}</td>
         <td style="white-space:nowrap">${esc(fmtDate(t.pickup_at))}${t.prepickup_at ? `<div class="muted small">📦 ${esc(fmtDate(t.prepickup_at))}</div>` : ''}</td>
         <td>${t.name ? `<b>${esc(t.name)}</b>` : ''}<div class="${t.name ? 'muted small' : ''}">${esc(t.pickup_address)}</div><div class="muted small">→ ${esc(t.dest_address)}</div></td>
         <td style="white-space:nowrap">${t.eta ? `<span class="eta-chip">${esc(fmtDate(t.eta))}</span>${t.eta_live_at ? '<div class="muted small">en ruta</div>' : ''}` : '<span class="muted">—</span>'}</td>
-        <td>${esc(t.driver_name || '—')}<div class="muted small">${esc(t.vehicle_name || '')}</div></td>
+        <td>${esc(t.driver_name || '—')}<div class="muted small">${esc(t.vehicle_name || '')}</div>${
+          t.last_location && !['finalizado', 'cancelado'].includes(t.status) ? `<div class="small">📍 ${esc(fmtAgo(t.last_location.at))}</div>` : ''
+        }</td>
         <td class="num">${t.km != null ? fmtNum(t.km) : '—'}</td>
         <td class="num">${t.km_per_liter ? fmtNum(t.km_per_liter, 2) : '—'}</td>
       </tr>`
@@ -127,17 +130,34 @@ function fillSelects() {
     vehicles.filter((v) => v.active).map((v) => `<option value="${v.id}">${esc(v.name)}${v.plate ? ` · ${esc(v.plate)}` : ''}</option>`).join('');
 }
 
-function openTripForm(trip) {
+// returnOf: viaje de ida para crear su viaje de regreso (misma unidad y chofer).
+function openTripForm(trip, returnOf = null) {
   editingTrip = trip || null;
+  returnParent = returnOf;
   const form = $('#trip-form');
   form.reset();
   fillSelects();
   form.querySelector('.msg').innerHTML = '';
-  $('#trip-form-title').textContent = trip ? `Editar viaje #${trip.id}` : 'Nuevo viaje';
+  $('#trip-form-title').textContent = trip ? `Editar viaje #${trip.id}` : returnOf ? `Viaje de regreso del #${returnOf.id}` : 'Nuevo viaje';
   $('#trip-save').textContent = trip ? 'Guardar cambios' : 'Guardar y avisar al chofer';
   $('#odo-fix').classList.toggle('hidden', !trip || trip.odo_start == null);
-  const t = trip || {};
-  if (trip) {
+  const t = trip || (returnOf
+    ? {
+        name: `Regreso${returnOf.name ? ` · ${returnOf.name}` : ''}`,
+        driver_id: returnOf.driver_id,
+        driver_name: returnOf.driver_name,
+        vehicle_id: returnOf.vehicle_id,
+        vehicle_name: returnOf.vehicle_name,
+        pickup_address: returnOf.dest_address,
+        pickup_lat: returnOf.dest_lat,
+        pickup_lng: returnOf.dest_lng,
+        dest_address: returnOf.pickup_address,
+        dest_lat: returnOf.pickup_lat,
+        dest_lng: returnOf.pickup_lng,
+        overnight_nights: 0,
+      }
+    : {});
+  if (trip || returnOf) {
     // Si el chofer o vehículo ya está inactivo, se agrega para no perderlo.
     for (const [sel, id, label] of [
       ['driver_id', t.driver_id, t.driver_name],
@@ -149,8 +169,15 @@ function openTripForm(trip) {
     }
   }
   form.driver_id.value = t.driver_id || '';
-  form.driver_id.disabled = Boolean(trip && trip.status !== 'asignado');
+  // La ida y el regreso comparten chofer y unidad.
+  const linked = Boolean(returnOf || t.parent_trip_id || t.return_trip_id);
+  form.driver_id.disabled = Boolean(linked || (trip && trip.status !== 'asignado'));
   form.vehicle_id.value = t.vehicle_id || '';
+  form.vehicle_id.disabled = linked;
+  form.overnight_nights.value = String(t.overnight_nights || 0);
+  if (![...form.overnight_nights.options].some((o) => o.value === String(t.overnight_nights || 0))) form.overnight_nights.add(new Option(`${t.overnight_nights} noches`, t.overnight_nights));
+  form.overnight_nights.value = String(t.overnight_nights || 0);
+  form.lodging_notes.value = t.lodging_notes || '';
   form.client_id.value = t.client_id || '';
   form.elements.name.value = t.name || '';
   form.notify_emails.value = t.notify_emails || '';
@@ -182,6 +209,8 @@ function syncPrepickup() {
   const on = $('#trip-form').has_prepickup.checked;
   $('#prepickup-box').classList.toggle('hidden', !on);
   $('#trip-form').prepickup_at.required = on;
+  // Oculto no debe bloquear el guardado (el campo de dirección del selector es obligatorio).
+  $('#prepickup-picker .address').required = on;
   $('#start-help').textContent = on
     ? 'De donde sale la unidad (ya cargada) rumbo al destino.'
     : 'Donde se carga y de donde sale la unidad rumbo al destino.';
@@ -296,6 +325,9 @@ $('#trip-form').addEventListener('submit', async (e) => {
     route_minutes: minutes,
     route_km: routeState.km,
     route_source: minutes != null ? routeState.source || 'manual' : null,
+    overnight_nights: form.overnight_nights.value,
+    lodging_notes: form.lodging_notes.value,
+    parent_trip_id: returnParent?.id,
     driver_id: form.driver_id.value,
     vehicle_id: form.vehicle_id.value,
     client_id: form.client_id.value,
@@ -333,6 +365,51 @@ $('#trip-form').addEventListener('submit', async (e) => {
   }
 });
 
+// Recorrido GPS del chofer: mapa con la línea del recorrido (con Google Maps)
+// o la lista de puntos. También suma los km entre puntos para compararlos con el odómetro.
+async function showTrack(t) {
+  const box = $('#track-box');
+  box.innerHTML = '<p class="muted small">Cargando recorrido…</p>';
+  let points;
+  try {
+    points = await api(`/trips/${t.id}/locations`);
+  } catch (err) {
+    return showError(box, err);
+  }
+  if (!points.length) return (box.innerHTML = '<p class="muted small">Sin puntos registrados.</p>');
+  const rad = (x) => (x * Math.PI) / 180;
+  let km = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+    km += 2 * 6371 * Math.asin(Math.sqrt(h));
+  }
+  const summary = `<p class="muted small">${points.length} puntos · ~${fmtNum(km)} km en línea recta entre puntos (la carretera suele ser 10–30 % más).</p>`;
+  const google = window.google?.maps ? window.google : await loadGoogleMaps(cfg.googleMapsApiKey);
+  if (google?.maps) {
+    box.innerHTML = `${summary}<div class="map-track"></div>`;
+    const { Map } = await google.maps.importLibrary('maps');
+    const path = points.map((p) => ({ lat: p.lat, lng: p.lng }));
+    const map = new Map(box.querySelector('.map-track'), { mapTypeControl: false, streetViewControl: false });
+    new google.maps.Polyline({ map, path, strokeColor: '#13294b', strokeWeight: 4, strokeOpacity: 0.85 });
+    new google.maps.Marker({ map, position: path[0], label: 'A', title: fmtUtc(points[0].recorded_at.replace('T', ' ').slice(0, 19)) });
+    new google.maps.Marker({ map, position: path.at(-1), label: 'B', title: fmtUtc(points.at(-1).recorded_at.replace('T', ' ').slice(0, 19)) });
+    const bounds = new google.maps.LatLngBounds();
+    path.forEach((p) => bounds.extend(p));
+    map.fitBounds(bounds);
+    return;
+  }
+  box.innerHTML = `${summary}<div class="table-wrap" style="max-height:240px;overflow:auto"><table class="list"><tbody>${points
+    .slice()
+    .reverse()
+    .map(
+      (p) => `<tr><td>${esc(fmtUtc(p.recorded_at.replace('T', ' ').slice(0, 19)))}</td><td>${p.speed != null ? `${fmtNum(p.speed * 3.6)} km/h` : ''}</td>
+        <td><a target="_blank" rel="noopener" href="https://www.google.com/maps?q=${p.lat},${p.lng}">${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</a></td></tr>`
+    )
+    .join('')}</tbody></table></div>`;
+}
+
 // ---------- Detalle ----------
 async function openDetail(id) {
   let t;
@@ -350,10 +427,16 @@ async function openDetail(id) {
   const photos = [
     photo(t.odo_start_photo, `Odómetro al salir: ${fmtNum(t.odo_start)} km`),
     photo(t.fuel_start_photo, `Combustible al salir: ${fuelLabel(t.fuel_start)}`),
+    ...stagePhotos('llegada_carga'),
     ...stagePhotos('carga'),
+    ...stagePhotos('salida'),
     ...stagePhotos('llegada'),
     ...stagePhotos('entrega'),
     ...stagePhotos('firma'),
+    ...t.pauses.flatMap((p) => [
+      photo(p.pause_photo, `Pausa · ${PAUSE_PLACE_LABEL[p.place]} · ${fmtDate(p.paused_at)} · ${fmtNum(p.pause_odometer)} km`),
+      photo(p.resume_photo, `Reanudó · ${fmtDate(p.resumed_at)} · ${fmtNum(p.resume_odometer)} km`),
+    ]),
     photo(t.odo_end_photo, `Odómetro al entregar: ${fmtNum(t.odo_end)} km`),
     photo(t.odo_return_photo, `Odómetro al regresar: ${fmtNum(t.odo_return)} km`),
     photo(t.fuel_end_photo, `Combustible al regresar: ${fuelLabel(t.fuel_end)}`),
@@ -363,10 +446,45 @@ async function openDetail(id) {
   const canEdit = t.status !== 'cancelado';
   const canCancel = ['asignado', 'en_recoleccion', 'cargado', 'en_ruta', 'en_destino'].includes(t.status);
   const tank = t.vehicle_tank_liters;
+  const canReturnTrip = !t.return_trip_id && !['finalizado', 'cancelado'].includes(t.status);
+  // Bitácora de pausas (hotel, domicilio, descansos).
+  const hotelNights = t.pauses.filter((p) => p.place === 'hotel').length;
+  const pausesHtml = t.pauses.length
+    ? `<h3 style="margin-top:14px">🌙 Pausas y jornadas</h3>
+      <p class="muted small">Pernocta autorizada: <b>${t.overnight_nights || 0}</b> noche(s)${t.lodging_notes ? ` · ${esc(t.lodging_notes)}` : ''} · Noches en hotel: <b>${hotelNights}</b>${
+        hotelNights > (t.overnight_nights || 0) ? ' <span class="eta-warn">⚠ más de las autorizadas</span>' : ''
+      }</p>
+      <div class="table-wrap"><table class="list"><thead><tr><th>Lugar</th><th>Pausó</th><th>Reanudó</th><th class="num">Odómetro</th><th class="num">Se movió</th></tr></thead><tbody>
+      ${t.pauses
+        .map((p) => {
+          const moved = p.resume_odometer != null ? p.resume_odometer - p.pause_odometer : null;
+          return `<tr><td>${esc(PAUSE_PLACE_LABEL[p.place])}${p.place_note ? `<div class="muted small">${esc(p.place_note)}</div>` : ''}</td>
+            <td>${esc(fmtDate(p.paused_at))}${p.pause_lat != null ? ` · <a target="_blank" rel="noopener" href="https://www.google.com/maps?q=${p.pause_lat},${p.pause_lng}">mapa</a>` : ''}</td>
+            <td>${p.resumed_at ? esc(fmtDate(p.resumed_at)) : `<b>En pausa</b>${p.resume_planned_at ? `<div class="muted small">reanuda ${esc(fmtDate(p.resume_planned_at))}</div>` : ''}`}</td>
+            <td class="num">${fmtNum(p.pause_odometer)}${p.resume_odometer != null ? ` → ${fmtNum(p.resume_odometer)}` : ''}</td>
+            <td class="num">${moved == null ? '—' : moved > 5 ? `<span class="eta-warn">⚠ ${fmtNum(moved, 1)} km</span>` : `${fmtNum(moved, 1)} km`}</td></tr>`;
+        })
+        .join('')}</tbody></table></div>`
+    : '';
+  const loc = t.last_location;
+  const locationHtml =
+    loc || !['asignado', 'cancelado'].includes(t.status)
+      ? `<h3 style="margin-top:14px">📍 Ubicación del chofer</h3>
+        ${
+          loc
+            ? `<p class="small">Último punto: <b>${esc(fmtAgo(loc.at))}</b> (${esc(fmtUtc(loc.at.replace('T', ' ').slice(0, 19)))}) ·
+                <a target="_blank" rel="noopener" href="https://www.google.com/maps?q=${loc.lat},${loc.lng}">Ver en Google Maps</a>
+                ${loc.accuracy ? `<span class="muted"> · precisión ±${fmtNum(loc.accuracy)} m</span>` : ''}</p>
+               <button class="btn-sm" data-show-track>🗺️ Ver recorrido</button><div id="track-box"></div>`
+            : '<p class="muted small">Aún no hay puntos. Se registran cada cierto tiempo mientras el chofer tiene la app abierta y el viaje activo.</p>'
+        }`
+      : '';
 
   $('#detail-body').innerHTML = `
     <div class="card-head">
-      <div><h2>Viaje #${t.id}${t.name ? ` · ${esc(t.name)}` : ''}</h2>${statusBadge(t.status)}</div>
+      <div><h2>Viaje #${t.id}${t.name ? ` · ${esc(t.name)}` : ''}</h2>${statusBadge(t.status)}${t.paused ? ' <span class="badge st-pausa">⏸ En pausa</span>' : ''}
+        ${t.parent_trip_id ? `<button class="btn-sm" data-open-trip="${t.parent_trip_id}">↩ Viaje de ida #${t.parent_trip_id}</button>` : ''}
+        ${t.return_trip_id ? `<button class="btn-sm" data-open-trip="${t.return_trip_id}">↪ Viaje de regreso #${t.return_trip_id}</button>` : ''}</div>
       <button data-close-detail>✕</button>
     </div>
     <div class="eta-box" style="margin-top:6px">
@@ -455,6 +573,8 @@ async function openDetail(id) {
         ${photos ? `<h3 style="margin-top:14px">Fotos</h3><div class="photos">${photos}</div>` : ''}
       </div>
     </div>
+    ${pausesHtml}
+    ${locationHtml}
     <h3 style="margin-top:14px">Historial</h3>
     <ul class="timeline">
       ${t.events
@@ -467,6 +587,7 @@ async function openDetail(id) {
     <div class="dialog-actions">
       ${t.status === 'cancelado' ? `<button class="btn-danger" data-delete>Borrar viaje</button>` : ''}
       ${canCancel ? `<button class="btn-danger" data-cancel>Cancelar viaje</button>` : ''}
+      ${canReturnTrip ? `<button data-return-trip>↪ Crear viaje de regreso</button>` : ''}
       ${canEdit ? `<button data-edit>Editar</button>` : ''}
       <button class="btn-primary" data-close-detail>Cerrar</button>
     </div>`;
@@ -490,6 +611,12 @@ async function openDetail(id) {
     dlg.close();
     openTripForm(t);
   });
+  body.querySelector('[data-return-trip]')?.addEventListener('click', () => {
+    dlg.close();
+    openTripForm(null, t);
+  });
+  $$('[data-open-trip]', body).forEach((b) => (b.onclick = () => openDetail(Number(b.dataset.openTrip))));
+  body.querySelector('[data-show-track]')?.addEventListener('click', () => showTrack(t));
   body.querySelector('[data-cancel]')?.addEventListener('click', async () => {
     const reason = prompt('Motivo de la cancelación (se avisará al chofer):', '');
     if (reason === null) return;

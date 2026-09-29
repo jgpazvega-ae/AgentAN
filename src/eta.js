@@ -42,15 +42,45 @@ function durationText(minutes) {
   return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`;
 }
 
+// Minutos entre dos horas locales "AAAA-MM-DDTHH:MM".
+function minutesBetween(a, b) {
+  const parse = (v) => {
+    const [date, time = '00:00'] = String(v).split('T');
+    const [y, m, d] = date.split('-').map(Number);
+    const [hh, mm] = time.split(':').map(Number);
+    return Date.UTC(y, m - 1, d, hh, mm);
+  };
+  return Math.round((parse(b) - parse(a)) / 60000);
+}
+
 // Agrega eta_at (planeado), eta_live_at (ya en ruta) y eta (el vigente).
+// Las pausas después de salir al destino (hotel, descanso) recorren el ETA:
+// - pausa terminada: se suma lo que duró;
+// - pausa en curso: ETA = hora planeada para reanudar + manejo que falta
+//   (si el chofer no indicó cuándo reanuda, el ETA queda sin calcular).
 function withEta(trip) {
   if (!trip) return trip;
   const minutes = trip.route_minutes;
+  const pauses = trip.pauses || [];
+  const open = pauses.find((p) => !p.resumed_at) || null;
+  trip.paused = Boolean(open);
+  trip.pause_until = open ? open.resume_planned_at || null : null;
   trip.eta_at = addMinutes(trip.pickup_at, minutes);
-  trip.eta_live_at = trip.departed_at ? addMinutes(trip.departed_at, minutes) : null;
+  trip.eta_live_at = null;
+  if (trip.departed_at && minutes != null) {
+    const onRoad = pauses.filter((p) => p.paused_at >= trip.departed_at);
+    const pausedMin = onRoad.filter((p) => p.resumed_at).reduce((sum, p) => sum + Math.max(0, minutesBetween(p.paused_at, p.resumed_at)), 0);
+    const current = onRoad.find((p) => !p.resumed_at);
+    if (current) {
+      const driven = minutesBetween(trip.departed_at, current.paused_at) - pausedMin;
+      trip.eta_live_at = current.resume_planned_at ? addMinutes(current.resume_planned_at, Math.max(0, minutes - driven)) : null;
+    } else {
+      trip.eta_live_at = addMinutes(trip.departed_at, minutes + pausedMin);
+    }
+  }
   const arrived = ['en_destino', 'entregado', 'finalizado', 'cancelado'].includes(trip.status);
-  trip.eta = arrived ? null : trip.eta_live_at || trip.eta_at;
+  trip.eta = arrived ? null : trip.departed_at ? trip.eta_live_at : trip.eta_at;
   return trip;
 }
 
-module.exports = { roughRoute, addMinutes, durationText, withEta, haversineKm };
+module.exports = { roughRoute, addMinutes, minutesBetween, durationText, withEta, haversineKm };

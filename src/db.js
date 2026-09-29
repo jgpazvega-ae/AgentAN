@@ -71,6 +71,20 @@ const TRIPS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
   fuel_end_photo TEXT
 )`;
 
+// Fotos de las etapas (las ve también el cliente):
+// llegada_carga (al llegar a cargar), carga (unidad cargada), salida (al salir al
+// destino, opcional), llegada (al punto de entrega), entrega y firma.
+const TRIP_PHOTOS_SQL = (name) => `CREATE TABLE IF NOT EXISTS ${name} (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('llegada_carga', 'carga', 'salida', 'llegada', 'entrega', 'firma')),
+  file TEXT NOT NULL,
+  user_id INTEGER REFERENCES users(id),
+  lat REAL,
+  lng REAL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`;
+
 // Bases de datos creadas con la versión anterior: se reconstruyen las tablas
 // cuyas reglas (CHECK) cambiaron, conservando todos los datos.
 function tableSql(name) {
@@ -104,6 +118,9 @@ if (tableSql('users') && !tableSql('users').includes('superadmin')) {
 if (tableSql('trips') && !tableSql('trips').includes('entregado')) {
   rebuildTable('trips', TRIPS_SQL);
 }
+if (tableSql('trip_photos') && !tableSql('trip_photos').includes('llegada_carga')) {
+  rebuildTable('trip_photos', TRIP_PHOTOS_SQL);
+}
 
 db.exec(`${USERS_SQL('users')};
 ${TRIPS_SQL('trips')};
@@ -131,16 +148,7 @@ CREATE INDEX IF NOT EXISTS idx_trips_client ON trips(client_id);
 -- Fotos de cada etapa del viaje (el odómetro se guarda en la tabla trips):
 -- carga (antes de salir a destino), llegada (al punto de entrega),
 -- entrega (prueba de entrega) y firma (firma de quien recibe).
-CREATE TABLE IF NOT EXISTS trip_photos (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('carga', 'llegada', 'entrega', 'firma')),
-  file TEXT NOT NULL,
-  user_id INTEGER REFERENCES users(id),
-  lat REAL,
-  lng REAL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
+${TRIP_PHOTOS_SQL('trip_photos')};
 CREATE INDEX IF NOT EXISTS idx_trip_photos_trip ON trip_photos(trip_id);
 
 CREATE TABLE IF NOT EXISTS trip_events (
@@ -254,6 +262,50 @@ addColumn('trips', 'route_source', 'TEXT'); // google | manual | estimado
 addColumn('trips', 'notify_emails', 'TEXT');
 // Enlace público de seguimiento (sin iniciar sesión).
 addColumn('trips', 'track_token', 'TEXT');
+// Llegada al punto de carga (antes de "Terminé de cargar").
+addColumn('trips', 'at_pickup_at', 'TEXT');
+// Viajes foráneos: noches autorizadas fuera (pernocta) y notas de hospedaje/viáticos.
+addColumn('trips', 'overnight_nights', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('trips', 'lodging_notes', 'TEXT');
+// Viaje de regreso ligado al viaje de ida (misma unidad y chofer).
+addColumn('trips', 'parent_trip_id', 'INTEGER REFERENCES trips(id)');
+
+// Pausas del viaje (descanso, hotel, domicilio): foto y odómetro al pausar y al reanudar.
+db.exec(`CREATE TABLE IF NOT EXISTS trip_pauses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id),
+  status TEXT NOT NULL,
+  place TEXT NOT NULL CHECK (place IN ('hotel', 'domicilio', 'base', 'cliente', 'carretera', 'otro')),
+  place_note TEXT,
+  paused_at TEXT NOT NULL,
+  pause_photo TEXT NOT NULL,
+  pause_odometer REAL NOT NULL,
+  pause_lat REAL,
+  pause_lng REAL,
+  resume_planned_at TEXT,
+  resumed_at TEXT,
+  resume_photo TEXT,
+  resume_odometer REAL,
+  resume_lat REAL,
+  resume_lng REAL
+);
+CREATE INDEX IF NOT EXISTS idx_pauses_trip ON trip_pauses(trip_id);
+
+-- Ubicación del chofer cada cierto tiempo mientras el viaje está activo.
+CREATE TABLE IF NOT EXISTS trip_locations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id),
+  lat REAL NOT NULL,
+  lng REAL NOT NULL,
+  accuracy REAL,
+  speed REAL,
+  recorded_at TEXT NOT NULL,
+  received_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_locations_trip ON trip_locations(trip_id, id);`);
+
 db.exec("UPDATE trips SET track_token = lower(hex(randomblob(16))) WHERE track_token IS NULL");
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS trips_track_token ON trips(track_token)');
 addColumn('quote_requests', 'service', 'TEXT');
