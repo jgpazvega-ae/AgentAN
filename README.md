@@ -12,7 +12,7 @@ La plataforma sirve para que el chofer:
 - **Inicie sesión y vea sus viajes asignados** (pendientes e historial).
 - **Reciba avisos al instante** cuando se le asigna, cambia o cancela un viaje: **notificación push** (como Uber) y **correo electrónico**.
 - **Navegue con Google Maps** a la recolección y al destino con un toque.
-- **Inicie y finalice el viaje desde la página** tomando **foto del odómetro** al inicio y al final.
+- **Inicie y finalice el viaje desde la página** tomando **foto del odómetro y del nivel de combustible** al salir y al regresar a su domicilio o base.
 - Registre **cargas de combustible** (litros, importe y foto del ticket) y envíe **notas** a la oficina.
 
 Y para que el administrador:
@@ -88,29 +88,147 @@ Cada recibo tiene folio (`P-00001` para pagos semanales y `B-00001` para bonos),
 
 > Los recibos son comprobantes internos. Para el tratamiento fiscal de los pagos a choferes (facturas, retenciones, IMSS) consulta a tu contador.
 
+## Alta del viaje, ETA y recolección anticipada
+
+Al crear un viaje se captura:
+
+- **Nombre del viaje** (por ejemplo, “Tarimas Abarrotes → León”), chofer, vehículo y cliente.
+- **Punto de inicio** con su **fecha y hora de inicio**, y el **destino final**. Se buscan en el mapa o se escriben.
+- **Entrega pactada** con el cliente (opcional).
+- **Tiempo estimado de llegada (ETA)**:
+  - El panel calcula el tiempo de manejo del inicio al destino con Google Maps (Routes API).
+  - Sin llave de Google hace una estimación aproximada: distancia en línea recta × 1.3 a 65 km/h.
+  - El tiempo se puede ajustar a mano (paradas, unidad más lenta).
+  - **ETA = inicio + tiempo de manejo**. Si queda después de la entrega pactada, se muestra un aviso.
+  - Cuando el chofer sale rumbo al destino, el ETA se recalcula con la **hora real de salida**.
+- **Recolección anticipada** (opcional): un mini flete dentro del flete principal para cargar la unidad antes.
+  - Se indica el lugar, la fecha y la hora, que deben ser antes del inicio del viaje.
+  - El chofer ve las paradas en orden: 1) recolección anticipada, 2) salida desde el punto de inicio, 3) destino.
+- **Correos para avisos de estatus** (opcional, hasta 5): contactos del cliente que no tienen cuenta.
+
+### Correos de estatus
+
+Cada cambio de estatus manda un correo. Quien hizo el cambio no recibe su propio aviso.
+
+| Estatus | Personal de AN | Cliente y correos adicionales |
+|---|---|---|
+| Programado (al crear el viaje) | ✔ | ✔ |
+| Cambios en el envío (lugares, horarios o ETA) | — | ✔ |
+| Inició el viaje (va por la carga) | ✔ con odómetro y combustible | ✔ |
+| Terminó de cargar | ✔ | ✔ con la hora de salida |
+| Salió rumbo al destino | ✔ | ✔ con el ETA recalculado |
+| Llegó al punto de entrega | ✔ | ✔ |
+| Entregado | ✔ | ✔ con quién recibió |
+| Regresó a base (viaje cerrado) | ✔ con km, litros y km/L | — |
+| Cancelado | ✔ | ✔ |
+
+- **Qué incluye el correo:** una barra de avance, los datos del viaje (paradas, horarios, ETA, chofer y unidad) y un botón.
+  - Para el personal, el botón abre el panel.
+  - Para el cliente, abre el **enlace de seguimiento** (`/seguimiento.html?t=…`), que no requiere cuenta. Ahí ve el estatus, el ETA y las fotos de carga, llegada y entrega. Nunca ve odómetro, combustible ni notas internas.
+- **Compartir el enlace:** en el detalle del viaje hay botones para copiarlo, mandarlo por WhatsApp o abrirlo.
+- **Dejar de recibir correos:** cada miembro del personal o cliente puede quedar sin correos de estatus en *Usuarios → editar → “Recibir por correo el estatus de cada viaje”*.
+- **Notas del chofer:** también llegan por correo al personal.
+
 ## Flujo del viaje
 
 ```
-Asignado ──(foto odómetro)──▶ Rumbo a cargar / cargando ──▶ Cargado (en espera) ──▶ En ruta ──(foto odómetro)──▶ Finalizado
+Asignado ─(odómetro + combustible)─▶ Rumbo a cargar ─(foto al llegar a cargar)─(foto de la unidad cargada)─▶ Cargado
+         ─(salir; foto si pasaron más de 3 h)─▶ En ruta ─(foto de llegada)─▶ En el punto de entrega
+         ─(prueba de entrega + odómetro)─▶ Entregado, regresando ─(odómetro + combustible)─▶ Cerrado
+
+En cualquier etapa activa:  ⏸ Pausar (foto de la unidad + odómetro)  →  ▶ Reanudar (foto del odómetro)
 ```
 
-| Paso | Qué hace el chofer |
-|---|---|
-| **Iniciar viaje** | Foto del odómetro + lectura, antes de arrancar hacia la recolección |
-| **Terminé de cargar** | Al terminar de subir la mercancía. El viaje puede quedarse “Cargado” horas o días |
-| **Salir rumbo al destino** | Cuando arranca el viaje oficial (por ejemplo, al día siguiente) |
-| **Finalizar viaje** | Foto del odómetro + lectura al entregar |
+| Paso | Qué hace el chofer | Fotos que quedan en la plataforma |
+|---|---|---|
+| **Iniciar viaje** | Antes de arrancar hacia donde va a cargar | Odómetro + lectura, **tablero con la aguja de combustible** + nivel (lleno, 3/4, 1/2…) |
+| **Llegué a cargar** | Al llegar al punto de carga | **Foto de llegada a cargar** |
+| **Terminé de cargar** | Con la mercancía acomodada | **Foto de la unidad cargada** |
+| **Salir rumbo al destino** | Al arrancar hacia el destino | Foto de salida, **obligatoria si pasaron más de 3 horas** desde que cargó o reanudó |
+| **Llegué al punto de entrega** | Al llegar al destino | **Foto de llegada** |
+| **Entregar** | Al entregar | **Prueba de entrega** (1 a 3 fotos), **nombre de quien recibe**, **firma** en pantalla (opcional) y odómetro al entregar |
+| **Llegué a mi domicilio / base** | Al estacionar la unidad de regreso | Odómetro + lectura y **tablero con la aguja de combustible** + nivel. Cierra el viaje. |
 
-Así se cubre el caso de **cargar un día y salir al siguiente**: los km recorridos cuentan desde que el chofer sale a cargar hasta que entrega.
+Cada foto guarda fecha, hora y la ubicación del celular (si el chofer da permiso). El personal ve todas las fotos en el detalle del viaje. El cliente ve las de llegada a cargar, unidad cargada, salida, llegada, entrega y firma. No ve las del odómetro, el tablero, las pausas ni los tickets de combustible. Para el cliente el envío termina al entregarse; el regreso del chofer es interno.
+
+### Viajes foráneos: pausas, pernocta y viaje de regreso
+
+**Pausas (descanso, hotel, domicilio).**
+- **Cuándo:** en cualquier etapa activa, el chofer presiona **🌙 Pausar**.
+- **Qué registra:**
+  - Dónde se queda: hotel, su domicilio, la base, instalaciones del cliente, descanso en carretera u otro.
+  - Una **foto de la unidad estacionada** y la lectura del odómetro.
+  - Opcionalmente, cuándo reanuda.
+- **Mientras está en pausa:**
+  - No puede avanzar pasos.
+  - No se registra su ubicación.
+  - Si ya salió al destino, el **ETA se recorre**: hora de reanudar + manejo que falta.
+- **Al día siguiente:** presiona **▶ Reanudar** con la **foto del odómetro**.
+- **Alertas al personal:**
+  - **Unidad movida:** si el odómetro cambió más de 5 km durante la pausa.
+  - **Pernocta no autorizada:** si pasa en hotel más noches de las autorizadas.
+
+**Pernocta autorizada.** Al crear el viaje se elige cuántas noches puede dormir fuera, más una nota de hospedaje y viáticos. El chofer lo ve en su viaje.
+
+**Viaje de regreso.**
+- **Cómo se crea:** desde el detalle del viaje de ida, con **↪ Crear viaje de regreso**, para una recolección en la misma ciudad días después.
+- **Qué tiene:** es otro viaje, con su cliente, carga, horarios, correos y enlace de seguimiento. Usa la **misma unidad y chofer**.
+- **Qué pasa con la ida:**
+  - La ida se **cierra sola** cuando el chofer inicia el regreso: la foto y lectura del odómetro y del combustible al iniciar el regreso son el cierre de la ida.
+  - Así cada tramo tiene sus km y su rendimiento.
+  - Si la unidad dormía en hotel, esa pausa también se cierra.
+
+**Ejemplo, Querétaro → Monterrey:**
+
+| Día | Qué pasa | Qué registra el chofer |
+|---|---|---|
+| 1 | Carga | Iniciar viaje → Llegué a cargar → Terminé de cargar → **Pausar (domicilio)** |
+| 2 | Viaja a Monterrey | **Reanudar** → Salir rumbo al destino → Llegué al punto de entrega |
+| 2 | No lo reciben hoy | **Pausar (hotel)** |
+| 3 | Entrega | **Reanudar** → Entregar |
+| 3 | La unidad duerme allá | **Pausar (hotel)** |
+| 4 | Recolección de regreso | Iniciar el **viaje de regreso** (cierra la ida) → Llegué a cargar → Terminé de cargar → Salir |
+| 4 | Llega de noche, entrega mañana | Llegué al punto de entrega → **Pausar (domicilio)** |
+| 5 | Entrega y cierra | **Reanudar** → Entregar → Llegué a mi domicilio / base |
+
+### Ubicación del chofer
+
+- **Cuándo se registra:** mientras el viaje está activo y **no está en pausa**, el celular manda su ubicación cada 5 minutos. Se cambia en *Empresa → Ubicación de los choferes*: 2, 5, 10, 15 min o apagado.
+- **Ahorro de datos y batería:**
+  - Una lectura por intervalo, no seguimiento continuo.
+  - No se envía si la unidad no se movió más de 150 m (salvo cada 30 min).
+  - Sin señal, los puntos se guardan en el celular y se envían juntos después.
+  - Cada envío pesa menos de 1 KB: unos 15 KB por hora.
+- **Qué ve el personal:**
+  - En la lista de viajes: “📍 hace X min”.
+  - En el detalle: el último punto y **🗺️ Ver recorrido**, que es el mapa con la línea del recorrido, o la lista de puntos sin Google Maps.
+  - Los km entre puntos sirven para comparar con el odómetro.
+- **Limitación:** una página web solo puede leer la ubicación **con la app abierta**. Si el chofer usa Google Maps para navegar, en ese rato no se registran puntos, pero sí en cada paso y cada foto. Para rastreo continuo en segundo plano se necesita un GPS en la unidad o una app nativa.
+
+## Perfiles de usuario
+
+| Perfil | Qué puede hacer |
+|---|---|
+| **Superadministrador** (correo maestro) | Todo. Es la cuenta que se crea en la configuración inicial. Da de alta y modifica al personal de AN, los datos de la empresa y las tarifas. No se puede desactivar ni cambiar de perfil. |
+| **Personal de AN** | Viajes, choferes, clientes, vehículos, pagos, rendimiento y cotizaciones. |
+| **Chofer** | Ve sus viajes y registra cada etapa con fotos, combustible y notas. Ve sus recibos de pago. |
+| **Cliente** | Entra a `/cliente.html`: sigue sus envíos en curso y su historial, con las fotos de carga, llegada y prueba de entrega. Recibe correo y notificación cuando su envío se programa, sale, llega y se entrega. |
+
+Los usuarios se crean en el panel → **Usuarios** → **Nuevo usuario**, eligiendo el perfil. Al crear un viaje, se elige el **cliente con acceso** para que lo vea en su portal. Si la plataforma ya estaba en uso, al actualizar el primer administrador pasa a ser el superadministrador y se conservan todos los datos.
 
 ### Cálculo del rendimiento
 
 ```
-km recorridos = odómetro final − odómetro inicial
-km por litro  = km recorridos ÷ litros cargados durante el viaje
+km a la entrega   = odómetro al entregar − odómetro al salir
+km de regreso     = odómetro al regresar − odómetro al entregar
+km totales        = odómetro al regresar − odómetro al salir
+litros usados     = litros cargados en el viaje + (nivel al salir − nivel al regresar) × capacidad del tanque
+km por litro      = km totales ÷ litros usados
 ```
 
-Para que el dato sea preciso se recomienda el método de **tanque lleno**: llenar el tanque al terminar cada viaje y registrar esa carga (el chofer con “⛽ Cargué combustible” o el administrador desde el detalle del viaje). Si el chofer escribe mal una lectura, el administrador la puede corregir en *Editar → Corregir lecturas del odómetro* comparando con la foto.
+Ejemplo: sale con 3/4, carga 120 L en carretera y regresa con 1/2 en un tanque de 100 L → 120 + 25 = 145 L usados. Con 1,015 km → 7.0 km/L.
+
+Registra la **capacidad del tanque** de cada vehículo (Vehículos → editar) para convertir la aguja en litros. La lectura de la aguja es aproximada (octavos); para mayor precisión se puede seguir usando el método de **tanque lleno** (salir y regresar con el tanque lleno y registrar cada carga con “⛽ Cargué combustible”). Si el chofer escribe mal una lectura, el administrador la puede corregir en *Editar → Corregir lecturas del odómetro* (al salir, al entregar y al regresar) comparando con la foto.
 
 ## Probarlo en tu computadora
 
@@ -141,7 +259,7 @@ Copia `.env.example` como `.env` y completa:
 ### Google Maps
 
 1. Entra a [Google Cloud Console](https://console.cloud.google.com/), crea un proyecto y activa la facturación (Google da crédito gratis mensual; para una flota pequeña normalmente no se paga nada).
-2. Habilita: **Maps JavaScript API**, **Places API (New)**, **Geocoding API** y **Maps Embed API**.
+2. Habilita: **Maps JavaScript API**, **Places API (New)**, **Geocoding API**, **Maps Embed API** y **Routes API** (distancia y tiempo de manejo para el cotizador y el ETA).
 3. Crea una **clave de API** y restríngela a tu dominio (*Restricciones de aplicación → Sitios web → `https://viajes.tuempresa.com/*`*).
 4. Ponla en `GOOGLE_MAPS_API_KEY`.
 
@@ -247,6 +365,7 @@ public/
   chofer.html pantalla del chofer
   login.html  inicio de sesión / configuración inicial
   admin.html  panel del administrador (js/admin.js, js/admin-payments.js, js/admin-site.js)
+  cliente.html portal del cliente (js/client.js)
   img/        logotipo
   sw.js       service worker (instalación y notificaciones)
 test/         pruebas automáticas

@@ -29,7 +29,7 @@ function fillYearSelect(select, selected) {
 function driverOptions(select) {
   select.innerHTML =
     '<option value="">— Selecciona —</option>' +
-    users.filter((u) => u.active || u.role === 'driver').map((u) => `<option value="${u.id}">${esc(u.name)}${u.active ? '' : ' (inactivo)'}</option>`).join('');
+    users.filter((u) => u.role === 'driver').map((u) => `<option value="${u.id}">${esc(u.name)}${u.active ? '' : ' (inactivo)'}</option>`).join('');
 }
 
 // ---------- Lista ----------
@@ -40,7 +40,7 @@ async function loadPayments() {
     $('#p-year').value = String(new Date().getFullYear());
   }
   const current = $('#p-driver').value;
-  $('#p-driver').innerHTML = '<option value="">Todos</option>' + users.map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
+  $('#p-driver').innerHTML = '<option value="">Todos</option>' + users.filter((u) => u.role === 'driver').map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
   $('#p-driver').value = current;
 
   const params = new URLSearchParams({ kind: paymentKind });

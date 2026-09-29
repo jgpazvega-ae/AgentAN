@@ -29,8 +29,10 @@ function parseCoords(text) {
 const DEFAULT_CENTER = { lat: 23.6345, lng: -102.5528 }; // centro aproximado de México
 
 class PlacePicker {
-  constructor(root, { apiKey, placeholder }) {
+  // onChange: se llama cuando cambia el punto o la dirección (para recalcular la ruta).
+  constructor(root, { apiKey, placeholder, onChange }) {
     this.root = root;
+    this.onChange = onChange || (() => {});
     this.value = { address: '', lat: null, lng: null };
     this.root.classList.add('place-picker');
     this.root.innerHTML = `
@@ -50,6 +52,8 @@ class PlacePicker {
         this.setPoint(c.lat, c.lng, Boolean(this.geocoder), this.map ? 16 : undefined);
       }
     });
+    // Dirección escrita a mano: se avisa al terminar de escribir.
+    this.addressInput.addEventListener('change', () => this.onChange());
     this.ready = this.initMap(apiKey);
   }
 
@@ -113,6 +117,7 @@ class PlacePicker {
         this.map.setZoom(zoom);
       }
     }
+    this.onChange();
     if (reverseGeocode && this.geocoder) {
       this.geocoder
         .geocode({ location: { lat: this.value.lat, lng: this.value.lng } })

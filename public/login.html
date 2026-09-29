@@ -46,9 +46,8 @@
   <script src="/js/common.js"></script>
   <script>
     const params = new URLSearchParams(location.search);
-    const go = (role) => {
+    const go = (home) => {
       const back = params.get('volver');
-      const home = role === 'admin' ? '/admin.html' : '/chofer.html';
       location.href = back && back.startsWith('/') && !back.startsWith('//') ? back : home;
     };
 
@@ -64,7 +63,7 @@
       }
       try {
         const me = await fetch('/api/me').then((r) => (r.ok ? r.json() : null));
-        if (me) go(me.role);
+        if (me) go(me.home);
       } catch {}
     })();
 
@@ -75,7 +74,7 @@
       btn.disabled = true;
       try {
         const res = await api('/login', { method: 'POST', body: { email: f.email.value, password: f.password.value } });
-        go(res.role);
+        go(res.home);
       } catch (err) {
         showError($('#login-msg'), err);
         btn.disabled = false;

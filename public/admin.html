@@ -19,7 +19,7 @@
   </header>
   <nav class="tabs">
     <button class="active" data-tab="trips">Viajes</button>
-    <button data-tab="drivers">Choferes</button>
+    <button data-tab="drivers">Usuarios</button>
     <button data-tab="vehicles">Vehículos</button>
     <button data-tab="payments">Pagos</button>
     <button data-tab="report">Rendimiento</button>
@@ -46,18 +46,30 @@
       </div>
       <div class="card table-wrap" style="padding:0">
         <table class="list">
-          <thead><tr><th>#</th><th>Estado</th><th>Recolección</th><th>Ruta</th><th>Chofer</th><th class="num">km</th><th class="num">km/L</th></tr></thead>
+          <thead><tr><th>#</th><th>Estado</th><th>Inicio</th><th>Viaje</th><th>Llegada estimada</th><th>Chofer</th><th class="num">km</th><th class="num">km/L</th></tr></thead>
           <tbody id="trips-body"></tbody>
         </table>
       </div>
     </section>
 
-    <!-- Choferes -->
+    <!-- Usuarios -->
     <section id="tab-drivers" class="hidden">
-      <div class="toolbar"><button class="btn-primary" id="new-user">＋ Nuevo chofer</button></div>
+      <div class="toolbar">
+        <button class="btn-primary" id="new-user">＋ Nuevo usuario</button>
+        <div class="grow"></div>
+        <label>Perfil
+          <select id="u-role">
+            <option value="">Todos</option>
+            <option value="superadmin">Superadministrador</option>
+            <option value="admin">Personal de AN</option>
+            <option value="driver">Choferes</option>
+            <option value="client">Clientes</option>
+          </select>
+        </label>
+      </div>
       <div class="card table-wrap" style="padding:0">
         <table class="list">
-          <thead><tr><th>Nombre</th><th>Correo</th><th>Teléfono</th><th>Rol</th><th>Notificaciones</th><th class="num">Viajes abiertos</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Correo</th><th>Teléfono</th><th>Perfil</th><th>Notificaciones</th><th class="num">Viajes abiertos</th><th>Estado</th></tr></thead>
           <tbody id="users-body"></tbody>
         </table>
       </div>
@@ -68,7 +80,7 @@
       <div class="toolbar"><button class="btn-primary" id="new-vehicle">＋ Nuevo vehículo</button></div>
       <div class="card table-wrap" style="padding:0">
         <table class="list">
-          <thead><tr><th>Nombre</th><th>Placas</th><th>Combustible</th><th class="num">Último odómetro</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Placas</th><th>Combustible</th><th class="num">Tanque (L)</th><th class="num">Último odómetro</th><th>Estado</th></tr></thead>
           <tbody id="vehicles-body"></tbody>
         </table>
       </div>
@@ -136,6 +148,15 @@
           <div><label>RFC (para recibos)</label><input name="rfc" maxlength="20"></div>
         </div>
         <label>Dirección</label><input name="address" maxlength="300">
+        <label>Ubicación de los choferes durante el viaje</label>
+        <select name="tracking_minutes" style="max-width:320px">
+          <option value="2">Cada 2 minutos</option>
+          <option value="5">Cada 5 minutos (recomendado)</option>
+          <option value="10">Cada 10 minutos</option>
+          <option value="15">Cada 15 minutos</option>
+          <option value="0">No registrar</option>
+        </select>
+        <p class="muted small">Solo mientras el viaje está activo (no en pausa) y la app está abierta en el celular. Cada envío pesa menos de 1 KB: unos 15 KB de datos por hora con 5 minutos.</p>
         <div class="msg"></div>
         <div class="dialog-actions"><a class="btn" href="/" target="_blank">Ver página</a><button class="btn-primary">Guardar</button></div>
       </form>
@@ -204,26 +225,84 @@
   <dialog id="trip-dialog" class="wide">
     <form id="trip-form">
       <h2 id="trip-form-title">Nuevo viaje</h2>
+      <label>Nombre del viaje</label>
+      <input name="name" maxlength="150" required placeholder="Ej. Tarimas Abarrotes del Bajío → León">
       <div class="grid-2">
         <div><label>Chofer</label><select name="driver_id" required></select></div>
         <div><label>Vehículo</label><select name="vehicle_id"><option value="">— Sin asignar —</option></select></div>
+        <div><label>Cliente con acceso a la plataforma (opcional)</label><select name="client_id"><option value="">— Ninguno —</option></select></div>
+        <div>
+          <label>Correos para avisos de estatus (opcional)</label>
+          <input name="notify_emails" maxlength="1000" placeholder="compras@cliente.com, almacen@cliente.com">
+          <p class="muted small">Reciben un correo en cada cambio de estatus con un enlace de seguimiento, sin necesidad de cuenta. Hasta 5, separados por coma.</p>
+        </div>
+      </div>
+
+      <label class="checkbox prepickup-toggle"><input type="checkbox" name="has_prepickup"> Incluye <b>recolección anticipada</b> (mini flete para cargar la unidad antes del viaje principal)</label>
+      <div id="prepickup-box" class="prepickup-box hidden">
+        <h3>📦 Recolección anticipada</h3>
+        <div class="grid-2">
+          <div><div id="prepickup-picker"></div></div>
+          <div>
+            <label>Fecha y hora de la recolección</label>
+            <input type="datetime-local" name="prepickup_at">
+            <p class="muted small">El chofer va primero a este lugar a cargar. La unidad queda cargada y sale del punto de inicio en la fecha y hora de inicio del viaje.</p>
+          </div>
+        </div>
       </div>
 
       <div class="grid-2">
         <div>
-          <h3 style="margin-top:14px">📍 Punto de recolección</h3>
+          <h3 style="margin-top:14px">📍 Punto de inicio</h3>
           <div id="pickup-picker"></div>
-          <label>Fecha y hora de recolección (pactada)</label>
+          <label>Fecha y hora de inicio</label>
           <input type="datetime-local" name="pickup_at" required>
+          <p class="muted small" id="start-help">Donde se carga y de donde sale la unidad rumbo al destino.</p>
         </div>
         <div>
           <h3 style="margin-top:14px">🏁 Destino final</h3>
           <div id="dest-picker"></div>
-          <label>Fecha y hora de entrega (opcional)</label>
+          <label>Entrega pactada con el cliente (opcional)</label>
           <input type="datetime-local" name="delivery_at">
-          <p class="muted small">Si se carga un día y se sale al siguiente, pon aquí la fecha de entrega. El chofer marcará “Terminé de cargar” y después “Salir rumbo al destino” cuando arranque.</p>
         </div>
       </div>
+
+      <div class="eta-box">
+        <h3>🕒 Tiempo estimado de llegada (ETA)</h3>
+        <div class="eta-grid">
+          <div>
+            <label>Tiempo de manejo del inicio al destino</label>
+            <div class="row">
+              <input name="route_h" type="number" min="0" max="168" step="1" inputmode="numeric" style="width:90px" aria-label="Horas"> <span>h</span>
+              <input name="route_m" type="number" min="0" max="59" step="1" inputmode="numeric" style="width:90px" aria-label="Minutos"> <span>min</span>
+              <button type="button" class="btn-sm" id="route-calc">↻ Calcular</button>
+            </div>
+            <p class="muted small" id="route-info">Elige el punto de inicio y el destino para calcular la ruta.</p>
+          </div>
+          <div class="eta-result">
+            <span class="muted small">Llegada estimada</span>
+            <b id="eta-value">—</b>
+            <span class="small" id="eta-warn"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top:14px">
+        <div>
+          <label>🌙 Viaje foráneo: noches fuera autorizadas</label>
+          <select name="overnight_nights">
+            <option value="0">No duerme fuera</option>
+            <option value="1">1 noche</option>
+            <option value="2">2 noches</option>
+            <option value="3">3 noches</option>
+            <option value="4">4 noches</option>
+            <option value="5">5 noches</option>
+            <option value="7">1 semana</option>
+          </select>
+        </div>
+        <div><label>Hospedaje y viáticos (opcional)</label><input name="lodging_notes" maxlength="500" placeholder="Ej. Hotel en Monterrey, $900 por noche"></div>
+      </div>
+      <p class="muted small">El chofer puede pausar el viaje cuando lo necesite (descanso, hotel o su domicilio) con foto y odómetro. Si pasa en hotel más noches de las autorizadas, te llega una alerta.</p>
 
       <div class="grid-2">
         <div><label>Cliente</label><input name="client" maxlength="200"></div>
@@ -234,9 +313,10 @@
 
       <details id="odo-fix" class="hidden">
         <summary class="small muted" style="margin-top:12px;cursor:pointer">Corregir lecturas del odómetro</summary>
-        <div class="grid-2">
-          <div><label>Odómetro inicial (km)</label><input name="odo_start" type="number" step="0.1" min="0"></div>
-          <div><label>Odómetro final (km)</label><input name="odo_end" type="number" step="0.1" min="0"></div>
+        <div class="grid-3">
+          <div><label>Al salir (km)</label><input name="odo_start" type="number" step="0.1" min="0"></div>
+          <div><label>Al entregar (km)</label><input name="odo_end" type="number" step="0.1" min="0"></div>
+          <div><label>Al regresar (km)</label><input name="odo_return" type="number" step="0.1" min="0"></div>
         </div>
       </details>
 
@@ -256,14 +336,21 @@
   <!-- Usuario -->
   <dialog id="user-dialog">
     <form id="user-form">
-      <h2 id="user-form-title">Nuevo chofer</h2>
+      <h2 id="user-form-title">Nuevo usuario</h2>
+      <label>Perfil</label>
+      <select name="role">
+        <option value="driver">Chofer</option>
+        <option value="client">Cliente</option>
+        <option value="admin">Personal de AN</option>
+      </select>
+      <p class="muted small" id="user-role-help"></p>
       <label>Nombre completo</label><input name="name" required maxlength="100">
+      <div id="user-company-row"><label>Empresa del cliente</label><input name="company" maxlength="150" placeholder="Razón social o nombre comercial"></div>
       <label>Correo (con este inicia sesión y recibe avisos)</label><input name="email" type="email" required>
       <label>Teléfono</label><input name="phone" type="tel" maxlength="40">
-      <label>Rol</label>
-      <select name="role"><option value="driver">Chofer</option><option value="admin">Administrador</option></select>
       <label id="user-password-label">Contraseña (mínimo 8 caracteres)</label>
       <input name="password" type="text" minlength="8" autocomplete="new-password">
+      <label class="checkbox" id="user-notify-row"><input type="checkbox" name="notify_email" checked> Recibir por correo el estatus de cada viaje</label>
       <label class="checkbox" id="user-welcome-row"><input type="checkbox" name="sendWelcome" checked> Enviarle por correo sus datos de acceso</label>
       <label class="checkbox hidden" id="user-active-row"><input type="checkbox" name="active"> Activo (puede iniciar sesión)</label>
       <div class="msg"></div>
@@ -285,7 +372,11 @@
           <select name="fuel_type"><option>Diésel</option><option>Gasolina</option><option>Gas LP</option><option>Otro</option></select>
         </div>
       </div>
-      <label>Odómetro actual (km)</label><input name="last_odometer" type="number" step="0.1" min="0">
+      <div class="grid-2">
+        <div><label>Odómetro actual (km)</label><input name="last_odometer" type="number" step="0.1" min="0"></div>
+        <div><label>Capacidad del tanque (litros)</label><input name="tank_liters" type="number" step="1" min="1" max="2000" placeholder="Ej. 80"></div>
+      </div>
+      <p class="muted small">Con la capacidad del tanque, el nivel de la aguja que reporta el chofer al salir y al regresar se convierte en litros para calcular el rendimiento.</p>
       <label class="checkbox hidden" id="vehicle-active-row"><input type="checkbox" name="active"> Activo</label>
       <div class="msg"></div>
       <div class="dialog-actions">

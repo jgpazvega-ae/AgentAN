@@ -82,6 +82,9 @@ h3 { font-size: 1rem; }
 .grow { flex: 1; }
 .grid-2 { display: grid; gap: 12px; grid-template-columns: 1fr; }
 @media (min-width: 720px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+.grid-3 { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 560px) { .grid-3 { grid-template-columns: 1fr 1fr 1fr; } }
+.trace { margin-bottom: 6px; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 12px; }
 .toolbar label { margin: 0; }
 
@@ -128,6 +131,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 .st-asignado { background: var(--primary-soft); color: var(--primary-text); }
 .st-en_recoleccion, .st-cargado { background: var(--warn-soft); color: var(--warn); }
 .st-en_ruta { background: #ede9fe; color: #6d28d9; }
+.st-en_destino { background: #cffafe; color: #0e7490; }
+.st-entregado { background: #dcfce7; color: #15803d; }
 .st-finalizado { background: var(--ok-soft); color: var(--ok); }
 .st-cancelado { background: var(--danger-soft); color: var(--danger); }
 @media (prefers-color-scheme: dark) { .st-en_ruta { background: #4c1d9588; color: #c4b5fd; } }
@@ -191,3 +196,35 @@ dialog form, dialog .dialog-body { padding: 18px; }
 .topbar .brand { font-weight: 600; opacity: .9; padding-left: 12px; border-left: 1px solid rgb(255 255 255 / .25); }
 @media (max-width: 420px) { .topbar .brand-logo { height: 24px; } }
 .empty { text-align: center; padding: 32px 16px; color: var(--muted); }
+
+/* Pasos del viaje con fotos */
+.step-h { margin: 14px 0 6px; font-size: .95rem; }
+.pod-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pod-grid .photo-input { padding: 10px 6px; font-size: .8rem; }
+.pod-grid .photo-input img { max-height: 110px; }
+.photo-input small { font-weight: 400; color: var(--muted); }
+.sig-wrap { position: relative; }
+.sig-wrap canvas { width: 100%; height: 140px; background: #fff; border: 1px dashed var(--border); border-radius: 10px; touch-action: none; display: block; }
+.sig-wrap button { position: absolute; right: 6px; bottom: 6px; }
+.photo-group { margin-top: 8px; }
+.photo-group h4 { margin: 8px 0 4px; font-size: .85rem; color: var(--muted); }
+.role-superadmin { background: #13294b; color: #fff; }
+.role-admin { background: var(--primary-soft); color: var(--primary-text); }
+.role-driver { background: var(--ok-soft); color: var(--ok); }
+.role-client { background: var(--warn-soft); color: var(--warn); }
+
+/* ---------- Formulario de viaje: recolección anticipada y ETA ---------- */
+.prepickup-toggle { margin-top: 14px; }
+.prepickup-box { border: 1px dashed var(--border, #d1d5db); border-radius: 12px; padding: 4px 14px 10px; margin-top: 8px; }
+.prepickup-box h3 { margin-top: 10px; }
+.eta-box { background: var(--primary-soft); border-radius: 12px; padding: 4px 14px 12px; margin-top: 14px; }
+.eta-box h3 { margin-top: 10px; }
+.eta-grid { display: grid; gap: 12px; grid-template-columns: 1fr; align-items: center; }
+@media (min-width: 720px) { .eta-grid { grid-template-columns: 2fr 1fr; } }
+.eta-result { display: flex; flex-direction: column; gap: 2px; }
+.eta-result b { font-size: 1.25rem; color: var(--primary-text); }
+.eta-warn { color: var(--warn); }
+.eta-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-text); font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+.stop.pre .dot { background: var(--warn-soft); }
+.st-pausa { background: #e0e7ff; color: #3730a3; }
+.map-track { width: 100%; height: 260px; border-radius: 12px; border: 1px solid var(--border); margin-top: 8px; }

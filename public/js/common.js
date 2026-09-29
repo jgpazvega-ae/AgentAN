@@ -1,11 +1,39 @@
 // Funciones compartidas por las páginas del chofer y del administrador.
 
+const ROLE_LABEL = { superadmin: 'Superadministrador', admin: 'Personal de AN', driver: 'Chofer', client: 'Cliente' };
+const isStaffRole = (role) => role === 'admin' || role === 'superadmin';
+
+// Tipos de foto de las etapas del viaje.
+// Nivel del tanque (fracción) → texto, como lo marca el tablero.
+const FUEL_LEVELS = [
+  [1, 'Lleno (F)'], [0.875, '7/8'], [0.75, '3/4'], [0.625, '5/8'], [0.5, '1/2'],
+  [0.375, '3/8'], [0.25, '1/4'], [0.125, '1/8'], [0, 'Reserva (E)'],
+];
+function fuelLabel(level) {
+  if (level == null) return '—';
+  const hit = FUEL_LEVELS.find(([v]) => Math.abs(v - level) < 0.01);
+  return hit ? hit[1] : `${Math.round(level * 100)}%`;
+}
+
+const PHOTO_KIND = {
+  llegada_carga: 'Llegada al punto de carga',
+  carga: 'Unidad cargada',
+  salida: 'Salida al destino',
+  llegada: 'Llegada al punto de entrega',
+  entrega: 'Prueba de entrega',
+  firma: 'Firma de quien recibe',
+};
+const PHOTO_ORDER = Object.keys(PHOTO_KIND);
+const PAUSE_PLACE_LABEL = { hotel: 'Hotel', domicilio: 'Domicilio del chofer', base: 'Base de AN', cliente: 'Instalaciones del cliente', carretera: 'Descanso en carretera', otro: 'Otro lugar' };
+
 const STATUS = {
   asignado: { label: 'Asignado', step: 0 },
   en_recoleccion: { label: 'Rumbo a cargar / cargando', step: 1 },
   cargado: { label: 'Cargado, en espera de salir', step: 2 },
   en_ruta: { label: 'En ruta al destino', step: 3 },
-  finalizado: { label: 'Finalizado', step: 4 },
+  en_destino: { label: 'En el punto de entrega', step: 4 },
+  entregado: { label: 'Entregado, regresando a base', step: 5 },
+  finalizado: { label: 'Cerrado (regresó a base)', step: 6 },
   cancelado: { label: 'Cancelado', step: -1 },
 };
 
@@ -61,6 +89,49 @@ function fmtNum(n, digits = 0) {
   return Number(n).toLocaleString('es-MX', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+// "2026-10-01T08:30:00.000Z" → "hace 5 min"
+function fmtAgo(iso) {
+  if (!iso) return '';
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return 'hace un momento';
+  if (min < 60) return `hace ${min} min`;
+  if (min < 48 * 60) return `hace ${Math.round(min / 60)} h`;
+  return `hace ${Math.round(min / 1440)} días`;
+}
+
+// 330 → "5 h 30 min"
+function fmtDuration(minutes) {
+  if (minutes == null) return '';
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`;
+}
+
+// "2026-10-01T08:30" + 90 → "2026-10-01T10:00" (hora local, igual que el servidor).
+function addMinutesLocal(local, minutes) {
+  if (!local || minutes == null) return null;
+  const [date, time = '00:00'] = String(local).split('T');
+  const [y, m, d] = date.split('-').map(Number);
+  const [hh, mm] = time.split(':').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d, hh, mm) + Math.round(minutes) * 60000);
+  return t.toISOString().slice(0, 16);
+}
+
+// Estimación sin Google Maps (misma fórmula que el servidor): línea recta × 1.3 a 65 km/h.
+function roughRoute(a, b) {
+  if ([a?.lat, a?.lng, b?.lat, b?.lng].some((v) => v == null)) return null;
+  const rad = (x) => (x * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  const km = Math.round(2 * 6371 * Math.asin(Math.sqrt(h)) * 1.3);
+  return { km, minutes: Math.max(10, Math.round((km / 65) * 60)) };
+}
+
+// Texto del ETA vigente de un viaje ("en ruta" si ya salió).
+function etaLabel(t) {
+  if (!t.eta) return '';
+  return `${t.eta_live_at ? 'Llega aprox.' : 'ETA'} ${fmtDate(t.eta)}`;
+}
+
 function statusBadge(status) {
   return `<span class="badge st-${esc(status)}">${esc(STATUS[status]?.label || status)}</span>`;
 }
@@ -97,7 +168,10 @@ async function shrinkPhoto(file, maxSide = 1600) {
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; // fondo blanco por si la imagen tiene transparencia (JPEG no la admite)
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     return await new Promise((resolve) => canvas.toBlob((b) => resolve(b || file), 'image/jpeg', 0.82));
   } catch {
     return file;

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#13294b">
+  <meta name="robots" content="noindex">
+  <title>Seguimiento de envío</title>
+  <link rel="icon" href="/icons/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand-link" aria-label="Página de la empresa"><img class="brand-logo" src="/img/logo-light.png" alt="AN Mobility Group"></a>
+    <div class="brand">Seguimiento de envío</div>
+    <button class="btn-sm" id="btn-refresh" title="Actualizar">↻</button>
+  </header>
+  <main class="container narrow">
+    <div id="list"><div class="empty">Cargando…</div></div>
+    <p class="muted small" id="updated" style="text-align:center"></p>
+    <p class="small" style="text-align:center">¿Tienes cuenta? <a href="/login.html">Inicia sesión</a> para ver todos tus envíos.</p>
+  </main>
+  <script src="/js/common.js"></script>
+  <script src="/js/shipment.js"></script>
+  <script src="/js/tracking.js"></script>
+</body>
+</html>

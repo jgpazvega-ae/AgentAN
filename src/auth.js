@@ -52,7 +52,7 @@ function loadUser(req, _res, next) {
   const token = readToken(req);
   if (token) {
     const row = get(
-      `SELECT u.id, u.name, u.email, u.phone, u.role, u.active, s.expires_at
+      `SELECT u.id, u.name, u.email, u.phone, u.role, u.company, u.active, s.expires_at
          FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.token = ?`,
       token
@@ -72,9 +72,22 @@ function requireUser(req, res, next) {
   next();
 }
 
+// Personal de AN: superadministrador y administradores.
+function isStaff(user) {
+  return Boolean(user) && (user.role === 'admin' || user.role === 'superadmin');
+}
+
+// Panel de administración (superadministrador y personal de AN).
 function requireAdmin(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Inicia sesión para continuar.' });
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo el administrador puede hacer esto.' });
+  if (!isStaff(req.user)) return res.status(403).json({ error: 'Solo el personal de AN puede hacer esto.' });
+  next();
+}
+
+// Solo el superadministrador (dueño): personal, datos de la empresa y tarifas.
+function requireSuper(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Inicia sesión para continuar.' });
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'Solo el superadministrador puede hacer esto.' });
   next();
 }
 
@@ -108,6 +121,8 @@ module.exports = {
   loadUser,
   requireUser,
   requireAdmin,
+  requireSuper,
+  isStaff,
   loginRateLimit,
   purgeExpiredSessions,
 };
