@@ -420,11 +420,13 @@ test('impuestos del cotizador por tipo de cliente', async () => {
   // León en 3.5 t: subtotal $4,900
   let t = taxBreakdown(DEFAULT_PRICING, { subtotal: 4900, clientType: 'moral', service: 'flete' });
   assert.deepEqual(t.lines.map((l) => l.amount), [784, -196, -61.25]);
-  assert.equal(t.total, 5426.75);
+  assert.equal(t.total, 5684, 'persona moral: se cobra importe + IVA 16%');
+  assert.equal(t.withheld, 257.25, 'las retenciones son informativas y no cambian el total');
   t = taxBreakdown(DEFAULT_PRICING, { subtotal: 4900, clientType: 'fisica', service: 'flete' });
   assert.equal(t.total, 5684, 'persona física: solo IVA');
   t = taxBreakdown(DEFAULT_PRICING, { subtotal: 4900, clientType: 'moral', service: 'ejecutivo' });
-  assert.equal(t.total, 5622.75, 'viaje ejecutivo: sin retención de IVA de fletes');
+  assert.equal(t.total, 5684, 'viaje ejecutivo: importe + IVA');
+  assert.equal(t.withheld, 61.25, 'viaje ejecutivo: sin retención de IVA de fletes');
 
   const admin = client();
   await admin('POST', '/login', { email: 'dueno@example.com', password: 'secreto123' });
@@ -446,11 +448,11 @@ test('impuestos del cotizador por tipo de cliente', async () => {
   assert.deepEqual((await admin('GET', '/pricing')).data.payment_methods.length, 3);
 
   const visitor = client();
-  r = await visitor('POST', '/quotes', { name: 'Empresa SA', company: 'Empresa SA de CV', phone: '4421234567', client_type: 'moral', payment_method: 'Transferencia', estimate: 4900, list_price: 5110, total: 5426.75, km: 171 });
+  r = await visitor('POST', '/quotes', { name: 'Empresa SA', company: 'Empresa SA de CV', phone: '4421234567', client_type: 'moral', payment_method: 'Transferencia', estimate: 4900, list_price: 5110, total: 5684, km: 171 });
   assert.equal(r.status, 201);
   const q = (await admin('GET', '/quotes')).data[0];
   assert.equal(q.client_type, 'moral');
-  assert.equal(q.total, 5426.75);
+  assert.equal(q.total, 5684);
   assert.equal(q.payment_method, 'Transferencia');
   assert.equal(q.list_price, 5110);
 });

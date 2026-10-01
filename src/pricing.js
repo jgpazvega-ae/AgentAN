@@ -96,12 +96,15 @@ function taxBreakdown(pricing, { subtotal, clientType, service }) {
   const rule = t.rules[clientType] || t.rules.fisica;
   const lines = [];
   if (rule.iva) lines.push({ key: 'iva', label: `IVA ${t.iva}%`, amount: round2((subtotal * t.iva) / 100) });
+  // Las retenciones (info) las entera el cliente al SAT: se muestran, pero no
+  // cambian lo que se cobra. Total cobrado = importe + IVA.
   if (rule.ret_iva && t.ret_iva_services.includes(service)) {
-    lines.push({ key: 'ret_iva', label: `Retención de IVA ${t.ret_iva}%`, amount: -round2((subtotal * t.ret_iva) / 100) });
+    lines.push({ key: 'ret_iva', label: `Retención de IVA ${t.ret_iva}%`, amount: -round2((subtotal * t.ret_iva) / 100), info: true });
   }
-  if (rule.ret_isr) lines.push({ key: 'ret_isr', label: `Retención de ISR ${t.ret_isr}%`, amount: -round2((subtotal * t.ret_isr) / 100) });
-  const total = round2(subtotal + lines.reduce((sum, l) => sum + l.amount, 0));
-  return { subtotal, lines, total };
+  if (rule.ret_isr) lines.push({ key: 'ret_isr', label: `Retención de ISR ${t.ret_isr}%`, amount: -round2((subtotal * t.ret_isr) / 100), info: true });
+  const total = round2(subtotal + lines.filter((l) => !l.info).reduce((sum, l) => sum + l.amount, 0));
+  const withheld = round2(-lines.filter((l) => l.info).reduce((sum, l) => sum + l.amount, 0));
+  return { subtotal, lines, total, withheld };
 }
 
 function estimate(pricing, { vehicle, km }) {

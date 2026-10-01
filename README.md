@@ -52,10 +52,12 @@ El cliente elige si es **persona física** o **empresa (persona moral)** y ve el
 | | Persona física | Persona moral |
 |---|---|---|
 | IVA 16% | se suma | se suma |
-| Retención de IVA 4% (solo fletes: art. 1-A fr. II inciso c LIVA) | — | se resta |
-| Retención de ISR 1.25% (transportista persona física en RESICO: art. 113-J LISR) | — | se resta |
+| Retención de IVA 4% (solo fletes: art. 1-A fr. II inciso c LIVA) | — | informativa |
+| Retención de ISR 1.25% (transportista persona física en RESICO: art. 113-J LISR) | — | informativa |
 
-Ejemplo León en 3.5 t (subtotal $4,900): persona física **$5,684.00**; persona moral $4,900 + $784 − $196 − $61.25 = **$5,426.75**. En viajes ejecutivos (transporte de personas) no aplica la retención de IVA de fletes. Los porcentajes y a quién aplican se ajustan en el panel → Empresa → Tarifas; confírmalos con tu contador.
+**Lo que se cobra es el importe más el IVA**, tanto a personas físicas como morales. Las retenciones se muestran solo como dato informativo: las entera la empresa directamente al SAT y no se suman ni se restan del total a pagar.
+
+Ejemplo León en 3.5 t (subtotal $4,900): persona física **$5,684.00**; persona moral **$5,684.00** ($4,900 + $784 de IVA), con $196 + $61.25 de retenciones informativas. En viajes ejecutivos (transporte de personas) no aplica la retención de IVA de fletes. Los porcentajes y a quién aplican se ajustan en el panel → Empresa → Tarifas; confírmalos con tu contador.
 
 Formas de pago que se muestran: efectivo, transferencia y tarjeta de crédito o débito (terminal Mercado Pago). El cliente indica su preferida en la solicitud.
 
