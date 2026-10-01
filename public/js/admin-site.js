@@ -182,10 +182,15 @@ function taxExample(input) {
     const rule = t.rules[who];
     const parts = [['Subtotal', sub]];
     if (rule.iva) parts.push([`IVA ${t.iva}%`, (sub * t.iva) / 100]);
-    if (rule.ret_iva && isFlete) parts.push([`Ret. IVA ${t.ret_iva}%`, (-sub * t.ret_iva) / 100]);
-    if (rule.ret_isr) parts.push([`Ret. ISR ${t.ret_isr}%`, (-sub * t.ret_isr) / 100]);
-    const total = parts.reduce((a, [, n]) => a + n, 0);
-    return parts.map(([k, n]) => `${k}: $${fmtNum(n, 2)}`).join(' · ') + ` → <b>$${fmtNum(total, 2)}</b>`;
+    const total = parts.reduce((a, [, n]) => a + n, 0); // lo que se cobra: importe + IVA
+    const held = [];
+    if (rule.ret_iva && isFlete) held.push(`Ret. IVA ${t.ret_iva}% $${fmtNum((sub * t.ret_iva) / 100, 2)}`);
+    if (rule.ret_isr) held.push(`Ret. ISR ${t.ret_isr}% $${fmtNum((sub * t.ret_isr) / 100, 2)}`);
+    return (
+      parts.map(([k, n]) => `${k}: $${fmtNum(n, 2)}`).join(' · ') +
+      ` → <b>$${fmtNum(total, 2)}</b>` +
+      (held.length ? ` <span class="muted">(informativo, las entera el cliente al SAT: ${held.join(' · ')})</span>` : '')
+    );
   };
   return `<p class="small" style="margin-top:8px"><b>${esc(v.label)} a León</b><br>Persona física: ${calc('fisica')}<br>Persona moral: ${calc('moral')}</p><p class="muted small">Casetas y extras aparte.</p>`;
 }

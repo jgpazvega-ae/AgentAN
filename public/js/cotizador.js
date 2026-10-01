@@ -18,9 +18,10 @@
     const rule = t.rules[clientType];
     const lines = [];
     if (rule.iva) lines.push({ label: `IVA ${t.iva}%`, amount: round2((subtotal * t.iva) / 100) });
-    if (rule.ret_iva && t.ret_iva_services.includes(service.id)) lines.push({ label: `Retención de IVA ${t.ret_iva}%`, amount: -round2((subtotal * t.ret_iva) / 100) });
-    if (rule.ret_isr) lines.push({ label: `Retención de ISR ${t.ret_isr}%`, amount: -round2((subtotal * t.ret_isr) / 100) });
-    return { lines, total: round2(subtotal + lines.reduce((sum, l) => sum + l.amount, 0)) };
+    // Las retenciones (info) las entera el cliente al SAT: no cambian lo que se cobra (importe + IVA).
+    if (rule.ret_iva && t.ret_iva_services.includes(service.id)) lines.push({ label: `Retención de IVA ${t.ret_iva}%`, amount: -round2((subtotal * t.ret_iva) / 100), info: true });
+    if (rule.ret_isr) lines.push({ label: `Retención de ISR ${t.ret_isr}%`, amount: -round2((subtotal * t.ret_isr) / 100), info: true });
+    return { lines, total: round2(subtotal + lines.filter((l) => !l.info).reduce((sum, l) => sum + l.amount, 0)) };
   }
   const money2 = (n) => `${n < 0 ? '−' : ''}$${Math.abs(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -265,18 +266,18 @@
               : ''
           }
           <tr><td>Subtotal</td><td>${money2(subtotal)}</td></tr>
-          ${taxes.lines.map((l) => `<tr class="${l.amount < 0 ? 'minus' : ''}"><td>${esc(l.label)}</td><td>${money2(l.amount)}</td></tr>`).join('')}
+          ${taxes.lines.filter((l) => !l.info).map((l) => `<tr><td>${esc(l.label)}</td><td>${money2(l.amount)}</td></tr>`).join('')}
           <tr class="grand"><td>Total a pagar</td><td>${money2(taxes.total)} <small>MXN</small></td></tr>
         </table>
         <div class="est-detail">${
-          clientType === 'moral' && taxes.lines.some((l) => l.amount < 0)
-            ? 'Las retenciones las entera tu empresa al SAT y se reflejan en la factura. '
+          taxes.lines.some((l) => l.info)
+            ? `Retenciones informativas que tu empresa entera al SAT (no se suman al cobro): ${taxes.lines.filter((l) => l.info).map((l) => `${esc(l.label)} ${money2(-l.amount)}`).join(' y ')}. `
             : ''
         }${!withDiscount && list !== est.total ? `Pagando en ${cashMethods.map((m) => m.toLowerCase()).join(' o ')} el total sería ${money2(taxBreakdown(est.total).total)}. ` : ''}Casetas aparte.</div>`;
     }
   }
 
-  $('calc-rule').textContent = `Tarifa base por unidad que incluye hasta ${P.included_km} km desde ${P.origin}. Cada km adicional (distancia por carretera, solo ida) se cobra según la unidad; la tarifa por km ya considera el regreso. En viajes largos se suman viáticos del chofer (${money(P.overnight_cost)} por noche, una noche por cada ${P.overnight_km} km). Impuestos: IVA ${P.taxes.iva}%. Si eres empresa (persona moral) retienes ${P.taxes.ret_iva}% de IVA en fletes y ${P.taxes.ret_isr}% de ISR, según la ley.`;
+  $('calc-rule').textContent = `Tarifa base por unidad que incluye hasta ${P.included_km} km desde ${P.origin}. Cada km adicional (distancia por carretera, solo ida) se cobra según la unidad; la tarifa por km ya considera el regreso. En viajes largos se suman viáticos del chofer (${money(P.overnight_cost)} por noche, una noche por cada ${P.overnight_km} km). Impuestos: IVA ${P.taxes.iva}%. Si eres empresa (persona moral) se cobra el importe más el IVA; las retenciones de la ley (${P.taxes.ret_iva}% de IVA en fletes y ${P.taxes.ret_isr}% de ISR) las entera tu empresa directamente al SAT.`;
   $('calc-extras').innerHTML = (P.extras || []).map((x) => `<li>${esc(x)}</li>`).join('');
   render();
 
@@ -354,9 +355,9 @@
     const rule = t.rules[pay.client];
     const lines = [];
     if (rule.iva) lines.push({ label: `IVA ${t.iva}%`, amount: round2((subtotal * t.iva) / 100) });
-    if (rule.ret_iva && t.ret_iva_services.includes(pay.service)) lines.push({ label: `Retención de IVA ${t.ret_iva}%`, amount: -round2((subtotal * t.ret_iva) / 100) });
-    if (rule.ret_isr) lines.push({ label: `Retención de ISR ${t.ret_isr}%`, amount: -round2((subtotal * t.ret_isr) / 100) });
-    return { lines, total: round2(subtotal + lines.reduce((sum, l) => sum + l.amount, 0)) };
+    if (rule.ret_iva && t.ret_iva_services.includes(pay.service)) lines.push({ label: `Retención de IVA ${t.ret_iva}%`, amount: -round2((subtotal * t.ret_iva) / 100), info: true });
+    if (rule.ret_isr) lines.push({ label: `Retención de ISR ${t.ret_isr}%`, amount: -round2((subtotal * t.ret_isr) / 100), info: true });
+    return { lines, total: round2(subtotal + lines.filter((l) => !l.info).reduce((sum, l) => sum + l.amount, 0)) };
   }
   function renderPay() {
     for (const [id, key] of [['pay-svc', 'service'], ['pay-client', 'client']]) {
@@ -370,18 +371,17 @@
     }
     const subtotal = round2(amount);
     const b = payBreakdown(subtotal);
-    const iva = b.lines.find((l) => l.amount > 0);
-    const retentions = b.lines.filter((l) => l.amount < 0);
+    const retentions = b.lines.filter((l) => l.info);
     const withheld = -retentions.reduce((sum, l) => sum + l.amount, 0);
     box.innerHTML = `
       <table class="est-table">
         <tr><td>Importe sin impuestos</td><td>${money2(subtotal)}</td></tr>
-        ${b.lines.map((l) => `<tr class="${l.amount < 0 ? 'minus' : ''}"><td>${esc(l.label)}</td><td>${money2(l.amount)}</td></tr>`).join('')}
+        ${b.lines.filter((l) => !l.info).map((l) => `<tr><td>${esc(l.label)}</td><td>${money2(l.amount)}</td></tr>`).join('')}
         <tr class="grand"><td>Total a pagar</td><td>${money2(b.total)} <small>MXN</small></td></tr>
       </table>
       ${
         retentions.length
-          ? `<div class="est-detail">Tu factura será por ${money2(subtotal + (iva ? iva.amount : 0))} (importe + IVA). Pagas ${money2(b.total)} y tu empresa entera ${money2(withheld)} de retenciones al SAT.</div>`
+          ? `<div class="est-detail">Tu factura será por ${money2(b.total)} (importe + IVA). Por ley, tu empresa entera directamente al SAT ${money2(withheld)} de retenciones (${retentions.map((l) => esc(l.label)).join(' y ')}); no se suman a lo que se cobra.</div>`
           : ''
       }`;
   }
