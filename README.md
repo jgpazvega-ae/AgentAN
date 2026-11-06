@@ -7,6 +7,8 @@ El sitio tiene dos partes:
 
 Los textos y datos de contacto de la página pública se editan desde el panel, en la pestaña **Empresa** (nombre, frase principal, “Nosotros”, zona de servicio, teléfono, WhatsApp, correo, dirección y RFC). Las solicitudes de cotización llegan por correo y quedan en la pestaña **Cotizaciones**.
 
+**Clientes y opiniones.** En la misma pestaña **Empresa** puedes capturar las *empresas que confían en nosotros* (una por renglón) y las *opiniones de clientes* (un renglón por opinión, con el formato `Comentario | Nombre y puesto | Empresa`). Aparecen en la página pública como las secciones **Clientes** y **Lo que dicen nuestros clientes**; si las dejas vacías, no se muestran. Captura solo nombres y comentarios reales que el cliente te haya autorizado mostrar. En la versión de GitHub Pages se capturan en `pages/sitio.json` (campos `clients` y `testimonials`, con `\n` entre renglones).
+
 La plataforma sirve para que el chofer:
 
 - **Inicie sesión y vea sus viajes asignados** (pendientes e historial).

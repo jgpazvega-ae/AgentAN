@@ -22,6 +22,7 @@
       <nav class="nav">
         <a href="#servicios">Servicios</a>
         <!--if:about--><a href="#nosotros">Nosotros</a><!--endif:about-->
+        <!--if:clientsHtml--><a href="#clientes">Clientes</a><!--endif:clientsHtml-->
         <a href="#cotizar">Cotizar</a>
         <a href="#cuanto-pagare">¿Cuánto pagaré?</a>
         <a href="#contacto">Contacto</a>
@@ -90,6 +91,24 @@
       </div>
     </section>
     <!--endif:about-->
+
+    <!--if:clientsHtml-->
+    <section id="clientes" class="section">
+      <div class="wrap">
+        <h2>Empresas que confían en nosotros</h2>
+        <ul class="client-list">{{{clientsHtml}}}</ul>
+      </div>
+    </section>
+    <!--endif:clientsHtml-->
+
+    <!--if:testimonialsHtml-->
+    <section id="opiniones" class="section alt">
+      <div class="wrap">
+        <h2>Lo que dicen nuestros clientes</h2>
+        <div class="quotes">{{{testimonialsHtml}}}</div>
+      </div>
+    </section>
+    <!--endif:testimonialsHtml-->
 
     <section id="cotizar" class="section alt">
       <div class="wrap">

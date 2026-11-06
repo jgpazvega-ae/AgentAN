@@ -1,8 +1,10 @@
 {
-  "_instrucciones": "Datos que se muestran en la versión de GitHub Pages. Edita los valores entre comillas y guarda (Commit changes). WhatsApp y teléfono a 10 dígitos. Lo que quede vacío no se muestra. google_maps_api_key: la llave de Google (restringida a tu sitio) para que el cliente elija origen y destino en el cotizador.",
+  "_instrucciones": "Datos que se muestran en la versión de GitHub Pages. Edita los valores entre comillas y guarda (Commit changes). WhatsApp y teléfono a 10 dígitos. Lo que quede vacío no se muestra. clients: empresas que confían en ti, una por renglón (separa renglones con \\n). testimonials: opiniones reales con permiso, 'Comentario | Nombre y puesto | Empresa' separadas por \\n. google_maps_api_key: la llave de Google (restringida a tu sitio) para que el cliente elija origen y destino en el cotizador.",
   "name": "AN Mobility Group",
   "tagline": "Transporte de carga puntual y seguro",
   "about": "",
+  "clients": "",
+  "testimonials": "",
   "service_area": "",
   "phone": "",
   "whatsapp": "",

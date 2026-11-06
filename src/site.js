@@ -16,6 +16,8 @@ const FIELDS = {
   address: 300,
   rfc: 20,
   quotes_email: 200, // a dónde llegan las solicitudes de cotización
+  clients: 1500, // empresas que confían en nosotros (una por renglón)
+  testimonials: 3000, // opiniones de clientes: "Comentario | Nombre y puesto | Empresa"
   tracking_minutes: 3, // cada cuántos minutos se registra la ubicación del chofer (0 = apagado)
 };
 
@@ -31,6 +33,8 @@ function defaults() {
     address: config.companyAddress,
     rfc: config.companyRfc,
     quotes_email: '',
+    clients: '',
+    testimonials: '',
     tracking_minutes: '5',
   };
 }

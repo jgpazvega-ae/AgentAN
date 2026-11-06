@@ -860,6 +860,43 @@ test('viaje foráneo: pausas, pernocta, viaje de regreso y ubicación', async ()
   assert.equal(r.data.fuel_level_liters, 20, '(1/2 − 1/4) × 80 L');
 });
 
+test('página pública: clientes y opiniones solo aparecen si se capturan', async () => {
+  const { renderHome } = require('../src/home');
+  const { mergePricing } = require('../src/pricing');
+  const base = { name: 'AN Mobility Group', tagline: 'Transporte', about: '', service_area: '', phone: '', whatsapp: '', email: '', address: '' };
+  let html = renderHome(base, mergePricing(null), {});
+  assert.ok(!html.includes('id="clientes"') && !html.includes('id="opiniones"'), 'vacío: no se muestran las secciones');
+  assert.ok(!html.includes('href="#clientes"'), 'vacío: sin enlace en el menú');
+
+  html = renderHome(
+    {
+      ...base,
+      clients: 'Abarrotes del Bajío\n  \nMuebles <b>SA</b> {{name}}',
+      testimonials: 'Siempre llegan a tiempo | Laura Gómez, Compras | Abarrotes del Bajío\nSolo comentario\n | sin comentario | X',
+    },
+    mergePricing(null),
+    {}
+  );
+  assert.ok(html.includes('id="clientes"') && html.includes('href="#clientes"'));
+  assert.equal((html.match(/<li>/g) || []).filter(Boolean).length >= 2, true);
+  assert.ok(html.includes('<li>Abarrotes del Bajío</li>'));
+  assert.ok(html.includes('Muebles &lt;b&gt;SA&lt;/b&gt;'), 'el texto se escapa');
+  assert.ok(!html.includes('<b>SA</b>'));
+  assert.ok(!html.includes('Muebles &lt;b&gt;SA&lt;/b&gt; AN Mobility Group'), 'las llaves del texto no se sustituyen');
+  assert.equal((html.match(/<figure class="quote">/g) || []).length, 2, 'dos opiniones (la que no tiene comentario se descarta)');
+  assert.ok(html.includes('Laura Gómez, Compras · Abarrotes del Bajío'));
+
+  // El panel guarda y devuelve los campos.
+  const admin = client();
+  await admin('POST', '/login', { email: 'dueno@example.com', password: 'secreto123' });
+  let r = await admin('PUT', '/site', { clients: 'Empresa Uno\nEmpresa Dos', testimonials: 'Excelente | Ana | Empresa Uno' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  r = await admin('GET', '/site');
+  assert.equal(r.data.clients, 'Empresa Uno\nEmpresa Dos');
+  assert.equal(r.data.testimonials, 'Excelente | Ana | Empresa Uno');
+  await admin('PUT', '/site', { clients: '', testimonials: '' });
+});
+
 test('migración: una base de datos anterior conserva sus datos y el primer admin pasa a superadministrador', () => {
   const { execFileSync } = require('node:child_process');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fletes-mig-'));
